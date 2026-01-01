@@ -128,8 +128,11 @@
     </div>
 
     <script>
-        const API_URL = "http://localhost:8000"; 
-        const WS_URL = "ws://localhost:8000/ws"; 
+        // const API_URL = "http://localhost:8000"; 
+        // const WS_URL = "ws://localhost:8000/ws"; 
+        // ปรับให้ใช้โดเมนปัจจุบันอัตโนมัติ
+        const API_URL = location.protocol + '//' + location.host;
+        const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + "/ws";
 
         // --- WebSocket & Basic Functions (เหมือนเดิม) ---
         function connectWebSocket() {
@@ -269,7 +272,7 @@
         async function startBot() { await fetch(`${API_URL}/start`, { method: 'POST' }); }
         async function stopBot() { await fetch(`${API_URL}/stop`, { method: 'POST' }); }
         function clearLogs() { document.getElementById('logContainer').innerHTML = ''; }
-        
+
         async function logout() {
             if(!confirm("Disconnect from Dashboard?")) return;
             try {
