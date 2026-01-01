@@ -31,13 +31,33 @@ class BitkubClient:
         ).hexdigest()
         return payload
 
+    # เปิดไฟล์ bitkub.py แล้วแก้ฟังก์ชัน get_candles เป็นแบบนี้
+
     async def get_candles(self, client: httpx.AsyncClient, symbol, resolution=15):
         try:
+            # --- ส่วนที่เพิ่ม: แปลง THB_BTC ให้เป็น BTC_THB ---
+            # API TradingView ของ Bitkub ต้องการรูปแบบ BTC_THB
+            # แต่ Database เราเก็บเป็น THB_BTC เราจึงต้องสลับที่กัน
+            if symbol.startswith("THB_"):
+                parts = symbol.split("_")
+                if len(parts) == 2:
+                    # สลับจาก THB_BTC เป็น BTC_THB
+                    query_symbol = f"{parts[1]}_{parts[0]}"
+                else:
+                    query_symbol = symbol
+            else:
+                query_symbol = symbol
+            # ------------------------------------------------
+
             current_time = int(time.time())
             from_time = current_time - (1440 * 60) # 24 hours
-            url = f"{BASE_URL}/tradingview/history?symbol={symbol}&resolution={resolution}&from={from_time}&to={current_time}"
+            
+            # ใช้ query_symbol ที่สลับแล้วส่งไปขอ API
+            url = f"{BASE_URL}/tradingview/history?symbol={query_symbol}&resolution={resolution}&from={from_time}&to={current_time}"
+            
             response = await client.get(url, timeout=10.0)
             data = response.json()
+            
             if data["s"] == "ok":
                 df = pd.DataFrame({
                     "timestamp": pd.to_datetime(data["t"], unit="s"),
@@ -49,8 +69,8 @@ class BitkubClient:
             return None
         except Exception as e:
             print(f"Error fetching candles for {symbol}: {e}")
-            return None
-
+            return None        
+        
     async def get_wallet(self, client: httpx.AsyncClient):
         # สร้าง payload สำหรับอ่าน wallet
         payload = {"ts": int(time.time())}
