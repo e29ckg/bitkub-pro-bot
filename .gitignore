@@ -3,6 +3,7 @@
 
 # โฟลเดอร์ Virtual Environment
 venv/
+.venv/
 env/
 
 # ไฟล์ Cache ของ Python
