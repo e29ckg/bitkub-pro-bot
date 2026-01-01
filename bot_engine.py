@@ -1,0 +1,146 @@
+import asyncio
+import httpx
+import logging
+import database as db
+import indicators as ind
+from bitkub import BitkubClient
+
+# ตั้งค่า Logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+
+class BotEngine:
+    def __init__(self, ws_manager):
+        self.running = False
+        self.ws_manager = ws_manager
+        self.api = BitkubClient()
+
+    async def log_and_broadcast(self, message):
+        print(message)
+        logging.info(message)
+        await self.ws_manager.broadcast(message)
+
+    def analyze_market(self, df, symbol):
+        # คำนวณ Indicators
+        df["RSI"] = ind.calculate_rsi(df["close"])
+        df["MACD"], df["Signal"] = ind.calculate_macd(df["close"])
+        df["BB_Mid"], df["BB_Upper"], df["BB_Lower"] = ind.calculate_bollinger_bands(df["close"])
+        
+        last = df.iloc[-1]
+        trend = "Downtrend" if last["MACD"] < last["Signal"] else "Uptrend"
+        
+        decisions = []
+        signal = "HOLD"
+        
+        # Logic การตัดสินใจ (ตัวอย่างย่อจากโค้ดเดิม)
+        if trend == "Downtrend":
+            if last["RSI"] < 30:
+                signal = "BUY"
+                decisions.append(f"RSI Oversold ({last['RSI']:.2f})")
+            elif last["close"] < last["BB_Lower"]:
+                signal = "BUY"
+                decisions.append("Price < BB Lower")
+        elif trend == "Uptrend":
+            if last["RSI"] > 70:
+                signal = "SELL"
+                decisions.append(f"RSI Overbought ({last['RSI']:.2f})")
+            elif last["close"] > last["BB_Upper"]:
+                signal = "SELL"
+                decisions.append("Price > BB Upper")
+                
+        return signal, ", ".join(decisions), last["close"]
+
+    async def execute_trade(self, client, symbol_data, action, price, reason):
+        # แกะข้อมูล symbol (ปรับให้ตรงกับ dict ที่ return จาก database.py)
+        # database.py return dict: {'id': 1, 'symbol': 'THB_BTC', ...}
+        s_id = symbol_data['id']
+        sym = symbol_data['symbol']
+        cost = symbol_data['cost']
+        coin = symbol_data['coin']
+        cost_st = symbol_data['cost_st']
+        
+        wallet = await self.api.get_wallet(client) # เช็คเงินจริง
+        
+        if action == "BUY":
+            # ตรวจสอบเงินบาทใน wallet (key คือ THB)
+            thb_balance = wallet.get('result', {}).get('THB', 0)
+            
+            if thb_balance < cost_st:
+                await self.log_and_broadcast(f"⚠️ {sym}: ไม่พอซื้อ (มี {thb_balance} บาท)")
+                return
+
+            res = await self.api.place_order(client, sym, cost_st, price, 'buy')
+            if res.get('error') == 0:
+                result = res['result']
+                # อัปเดต DB
+                new_cost = cost + result['amt'] # amt คือจำนวนเงินที่ใช้
+                new_coin = coin + result['rec'] # rec คือเหรียญที่ได้
+                
+                # เรียกใช้ synchronous DB function ใน thread แยก
+                await asyncio.to_thread(db.update_cost_coin, s_id, new_cost, new_coin, price)
+                await asyncio.to_thread(db.save_order, result, f"BUY: {reason}")
+                
+                await self.log_and_broadcast(f"✅ {sym} BUY Success @ {price}")
+            else:
+                await self.log_and_broadcast(f"❌ {sym} BUY Error: {res.get('error')}")
+
+        elif action == "SELL":
+            if coin <= 0: return
+
+            res = await self.api.place_order(client, sym, coin, price, 'sell')
+            if res.get('error') == 0:
+                result = res['result']
+                new_cost = max(0, cost - result['rec']) # rec คือเงินบาทที่ได้
+                new_coin = max(0, coin - result['amt']) # amt คือเหรียญที่ขาย
+                
+                await asyncio.to_thread(db.update_cost_coin, s_id, new_cost, new_coin, price)
+                await asyncio.to_thread(db.save_order, result, f"SELL: {reason}")
+                
+                await self.log_and_broadcast(f"✅ {sym} SELL Success @ {price}")
+
+    async def process_symbol(self, client, symbol_data):
+        sym = symbol_data['symbol']
+        status = symbol_data['status']
+        
+        if status != 'true': return
+
+        # 1. ดึงกราฟ
+        df = await self.api.get_candles(client, sym)
+        if df is None: return
+
+        # 2. วิเคราะห์
+        signal, reason, last_close = self.analyze_market(df, sym)
+        
+        await self.log_and_broadcast(f"🔍 {sym}: {last_close} | {signal} | {reason}")
+
+        # 3. ตัดสินใจซื้อขาย (Trading Logic)
+        if signal == "BUY" and symbol_data['cost'] == 0: # ซื้อเมื่อยังไม่มีของ
+             await self.execute_trade(client, symbol_data, "BUY", last_close, reason)
+        
+        elif signal == "SELL" and symbol_data['coin'] > 0: # ขายเมื่อมีของ
+             await self.execute_trade(client, symbol_data, "SELL", last_close, reason)
+
+    async def run_loop(self):
+        self.running = True
+        await self.log_and_broadcast("🚀 Bot Started (Async Engine)")
+        
+        async with httpx.AsyncClient() as client:
+            while self.running:
+                try:
+                    start_time = asyncio.get_running_loop().time()
+                    
+                    # อ่านข้อมูลจาก DB (รันใน thread แยก)
+                    symbols = await asyncio.to_thread(db.get_symbols)
+                    
+                    # สร้าง Tasks เพื่อรันทุกเหรียญพร้อมกัน
+                    tasks = [self.process_symbol(client, sym) for sym in symbols]
+                    await asyncio.gather(*tasks)
+                    
+                    # คำนวณเวลาที่ใช้
+                    elapsed = asyncio.get_running_loop().time() - start_time
+                    await self.log_and_broadcast(f"⏱️ Loop finished in {elapsed:.2f}s. Waiting...")
+                    
+                    await asyncio.sleep(10) # พัก 10 วินาที
+
+                except Exception as e:
+                    await self.log_and_broadcast(f"⚠️ Bot Loop Error: {e}")
+                    await asyncio.sleep(5)

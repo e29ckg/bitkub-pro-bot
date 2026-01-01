@@ -1,0 +1,17 @@
+# ไฟล์ความลับ (ห้ามเอาขึ้นเด็ดขาด)
+.env
+
+# โฟลเดอร์ Virtual Environment
+venv/
+env/
+
+# ไฟล์ Cache ของ Python
+__pycache__/
+*.py[cod]
+
+# ฐานข้อมูล (ถ้าไม่อยากให้ประวัติเทรดหลุด หรือไฟล์ใหญ่เกิน)
+*.db
+app.db
+
+# ไฟล์ System ของ Mac (ถ้าใช้)
+.DS_Store
