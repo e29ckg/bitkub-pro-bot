@@ -1,6 +1,7 @@
 import asyncio
 import httpx
 import logging
+import os
 import database as db
 import indicators as ind
 from bitkub import BitkubClient
@@ -13,11 +14,33 @@ class BotEngine:
         self.running = False
         self.ws_manager = ws_manager
         self.api = BitkubClient()
+        self.tg_token = os.getenv("TELEGRAM_TOKEN")
+        self.chat_id = os.getenv("CHAT_ID")
+    
+    async def send_telegram(self, message):
+        if not self.tg_token or not self.chat_id:
+            return # ถ้าไม่ได้ตั้งค่าไว้ ก็ข้ามไป
+            
+        url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
+        try:
+            # ใช้ client ชั่วคราวส่งข้อความไวๆ
+            async with httpx.AsyncClient() as client:
+                await client.get(url, params={"chat_id": self.chat_id, "text": message})
+        except Exception as e:
+            print(f"Telegram Error: {e}")
 
     async def log_and_broadcast(self, message):
         print(message)
         logging.info(message)
         await self.ws_manager.broadcast(message)
+        
+        if "BUY" in message or "SELL" in message or "Error" in message or "Active" in message:
+            await self.send_telegram(message)
+
+    # async def log_and_broadcast(self, message):
+    #     print(message)
+    #     logging.info(message)
+    #     await self.ws_manager.broadcast(message)
 
     def analyze_market(self, df, symbol):
         # คำนวณ Indicators
