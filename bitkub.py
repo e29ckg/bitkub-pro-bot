@@ -87,14 +87,29 @@ class BitkubClient:
             print(f"Wallet API Error: {e}")
             return {"error": 1}
 
+    # ในไฟล์ bitkub.py
+
     async def place_order(self, client: httpx.AsyncClient, sym, amt, rat, side, type='limit'):
+        # --- ส่วนที่เพิ่ม: แปลง THB_BTC เป็น BTC_THB ก่อนส่งคำสั่ง ---
+        if sym.startswith("THB_"):
+            parts = sym.split("_")
+            if len(parts) == 2:
+                # สลับตำแหน่ง: เอาตัวหลังขึ้นก่อน (BTC_THB)
+                query_symbol = f"{parts[1]}_{parts[0]}"
+            else:
+                query_symbol = sym
+        else:
+            query_symbol = sym
+        # --------------------------------------------------------
+
         payload = {
-            "sym": sym,
+            "sym": query_symbol, # ใช้ตัวแปรใหม่ที่สลับแล้ว
             "amt": amt,
             "rat": rat,
             "typ": type,
             "ts": int(time.time())
         }
+        
         # Sign Payload
         payload["sig"] = hmac.new(
             API_SECRET.encode('utf-8'),
@@ -102,7 +117,9 @@ class BitkubClient:
             hashlib.sha256
         ).hexdigest()
 
-        endpoint = "/api/market/place-bid" if side == 'buy' else "/api/market/place-ask"
+        # เลือก Endpoint ให้ถูก (v3)
+        endpoint = "/api/v3/market/place-bid" if side == 'buy' else "/api/v3/market/place-ask"
+        
         try:
             response = await client.post(f"{BASE_URL}{endpoint}", json=payload, headers=self.headers)
             return response.json()
@@ -112,3 +129,53 @@ class BitkubClient:
     async def cancel_order(self, client: httpx.AsyncClient, sym, order_id, side):
          # ... (Implement Cancel Logic similar to place_order) ...
          pass
+    
+    # เพิ่มลงใน class BitkubClient ในไฟล์ bitkub.py
+
+    async def get_asks(self, client: httpx.AsyncClient, sym, limit=5):
+        """
+        ดึงรายการคนตั้งขาย (Asks) เพื่อดูว่ามีคนขวางขายที่ราคาเท่าไหร่
+        Endpoint: /api/v3/market/asks
+        """
+        # 1. สลับชื่อเหรียญ (THB_BTC -> BTC_THB)
+        if sym.startswith("THB_"):
+            parts = sym.split("_")
+            if len(parts) == 2:
+                query_symbol = f"{parts[1]}_{parts[0]}"
+            else:
+                query_symbol = sym
+        else:
+            query_symbol = sym
+
+        # 2. ยิง API
+        try:
+            url = f"{BASE_URL}/api/v3/market/asks?sym={query_symbol}&lmt={limit}"
+            response = await client.get(url, headers=self.headers)
+            return response.json()
+        except Exception as e:
+            print(f"Error fetching asks for {sym}: {e}")
+            return {"error": 1, "result": []}
+
+    async def get_bids(self, client: httpx.AsyncClient, sym, limit=5):
+        """
+        ดึงรายการคนตั้งรับซื้อ (Bids)
+        Endpoint: /api/v3/market/bids
+        """
+        # 1. สลับชื่อเหรียญ (THB_BTC -> BTC_THB)
+        if sym.startswith("THB_"):
+            parts = sym.split("_")
+            if len(parts) == 2:
+                query_symbol = f"{parts[1]}_{parts[0]}"
+            else:
+                query_symbol = sym
+        else:
+            query_symbol = sym
+
+        # 2. ยิง API
+        try:
+            url = f"{BASE_URL}/api/v3/market/bids?sym={query_symbol}&lmt={limit}"
+            response = await client.get(url, headers=self.headers)
+            return response.json()
+        except Exception as e:
+            print(f"Error fetching bids for {sym}: {e}")
+            return {"error": 1, "result": []}
