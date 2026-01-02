@@ -254,9 +254,9 @@ class BotEngine:
         if signal == "BUY":
             # 3.1 ยังไม่มีของ -> ซื้อไม้แรก
             if symbol_data['coin'] == 0:
-                 if symbol_data['cost'] + symbol_data['cost_st'] <= symbol_data['money_limit']:
+                if symbol_data['cost'] + symbol_data['cost_st'] <= symbol_data['money_limit']:
                      await self.execute_trade(client, symbol_data, "BUY", last_close, reason)
-                 else:
+                else:
                      if previous_signal != "BUY":
                         msg = f"⚠️ {sym}: Signal BUY but Money Limit Exceeded ({symbol_data['cost']}/{symbol_data['money_limit']})"
                         await self.log_and_broadcast(msg)
