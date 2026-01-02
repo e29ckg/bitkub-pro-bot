@@ -6,6 +6,8 @@ import hmac
 import os
 import pandas as pd
 from dotenv import load_dotenv
+import utils 
+import config
 
 load_dotenv()
 
@@ -35,19 +37,8 @@ class BitkubClient:
 
     async def get_candles(self, client: httpx.AsyncClient, symbol, resolution=15):
         try:
-            # --- ส่วนที่เพิ่ม: แปลง THB_BTC ให้เป็น BTC_THB ---
-            # API TradingView ของ Bitkub ต้องการรูปแบบ BTC_THB
-            # แต่ Database เราเก็บเป็น THB_BTC เราจึงต้องสลับที่กัน
-            if symbol.startswith("THB_"):
-                parts = symbol.split("_")
-                if len(parts) == 2:
-                    # สลับจาก THB_BTC เป็น BTC_THB
-                    query_symbol = f"{parts[1]}_{parts[0]}"
-                else:
-                    query_symbol = symbol
-            else:
-                query_symbol = symbol
-            # ------------------------------------------------
+            # แปลงชื่อเป็น API Format (BTC_THB) อัตโนมัติ
+            query_symbol = utils.normalize_symbol(symbol, to_api=True)
 
             current_time = int(time.time())
             from_time = current_time - (1440 * 60) # 24 hours
@@ -90,17 +81,8 @@ class BitkubClient:
     # ในไฟล์ bitkub.py
 
     async def place_order(self, client: httpx.AsyncClient, sym, amt, rat, side, type='limit'):
-        # --- ส่วนที่เพิ่ม: แปลง THB_BTC เป็น BTC_THB ก่อนส่งคำสั่ง ---
-        if sym.startswith("THB_"):
-            parts = sym.split("_")
-            if len(parts) == 2:
-                # สลับตำแหน่ง: เอาตัวหลังขึ้นก่อน (BTC_THB)
-                query_symbol = f"{parts[1]}_{parts[0]}"
-            else:
-                query_symbol = sym
-        else:
-            query_symbol = sym
-        # --------------------------------------------------------
+        # แปลงชื่อเป็น API Format (BTC_THB) อัตโนมัติ
+        query_symbol = utils.normalize_symbol(sym, to_api=True)
 
         payload = {
             "sym": query_symbol, # ใช้ตัวแปรใหม่ที่สลับแล้ว

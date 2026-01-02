@@ -4,12 +4,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import asyncio
 import database as db
+import utils # <--- เรียกใช้ Utils ที่สร้างใหม่
 from bot_engine import BotEngine
 from fastapi.staticfiles import StaticFiles
-
 import os
 
 BOT_PASSWORD = os.getenv("BOT_PASSWORD", "1234")
+
+# เริ่มต้น DB (ถ้า init_db เป็น sync ให้เรียกตรงนี้ได้เลย)
+db.init_db() 
 
 app = FastAPI()
 
@@ -35,7 +38,8 @@ class ConnectionManager:
         self.active_connections.remove(websocket)
 
     async def broadcast(self, message: str):
-        for connection in self.active_connections:
+        # วนลูปส่งข้อความ (ต้อง copy list เพื่อป้องกัน error เวลา list เปลี่ยนขนาดขณะวนลูป)
+        for connection in self.active_connections[:]:
             try:
                 await connection.send_text(message)
             except:
@@ -45,27 +49,16 @@ ws_manager = ConnectionManager()
 bot = BotEngine(ws_manager)
 
 # --- Pydantic Models ---
-class SymbolModel(BaseModel):
-    symbol: str
-    status: str = 'true'
-    money_limit: float = 1000
-    cost_st: float = 100
-    # เพิ่ม field อื่นๆ ตามต้องการ
-
 class UpdateSymbolModel(BaseModel):
     status: str
     money_limit: float
     cost_st: float
 
-
 # --- Routes ---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    # เช็คว่ามี Cookie ชื่อ "access_token" หรือไม่
     token = request.cookies.get("access_token")
-    
-    # ถ้ามี Token และถูกต้อง (ในที่นี้เราเช็คแค่มันมีค่าไหม ง่ายๆ)
     if token == "logged_in_success":
         try:
             with open("dashboard.html", "r", encoding="utf-8") as f:
@@ -73,7 +66,6 @@ async def read_root(request: Request):
         except FileNotFoundError:
             return "Dashboard file not found."
     
-    # ถ้าไม่มี Token ให้ส่งหน้า Login กลับไปแทน
     try:
         with open("login.html", "r", encoding="utf-8") as f:
             return f.read()
@@ -83,21 +75,17 @@ async def read_root(request: Request):
 @app.post("/login")
 async def login(response: Response, password: str = Form(...)):
     if password == BOT_PASSWORD:
-        # ถ้ารหัสถูก ให้สร้าง Cookie ชื่อ access_token
         content = {"message": "Login Success"}
         response = JSONResponse(content=content)
-        # ตั้ง Cookie (httponly เพื่อความปลอดภัย)
         response.set_cookie(key="access_token", value="logged_in_success", httponly=True)
         return response
     else:
-        # ถ้ารหัสผิด ส่ง Error 401
         raise HTTPException(status_code=401, detail="Incorrect Password")
     
 @app.post("/logout")
 async def logout(response: Response):
     content = {"message": "Logout Success"}
     response = JSONResponse(content=content)
-    # ลบ Cookie ทิ้ง
     response.delete_cookie(key="access_token")
     return response
 
@@ -113,40 +101,58 @@ async def stop_bot():
     bot.running = False
     return {"message": "Bot stopping..."}
 
+# --- 🟢 ส่วนที่แก้ไขให้เป็น Async Database ---
+
 @app.get("/symbols")
-def get_symbols():
-    return db.get_symbols()
+async def get_symbols(): # ต้องเป็น async
+    return await db.get_symbols() # ต้องมี await
 
 @app.post("/add_symbol")
-def add_symbol(item: SymbolModel):
-    with db.sqlite3.connect(db.DB_NAME) as conn:
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO watched_symbols (symbol, status, money_limit, cost_st) VALUES (?, ?, ?, ?)",
-                       (item.symbol, item.status, item.money_limit, item.cost_st))
-        conn.commit()
-    return {"message": "Added"}
+async def add_symbol(request: Request):
+    data = await request.json()
+    
+    # 1. ใช้ Utils แปลงชื่อเหรียญให้เป็น THB_BTC เสมอ
+    raw_symbol = data.get("symbol", "")
+    symbol = utils.normalize_symbol(raw_symbol, to_api=False)
+
+    # 2. ดึงค่า Config (ต้องดึงจาก data มาก่อน)
+    money_limit = float(data.get("money_limit", 1000))
+    cost_st = float(data.get("cost_st", 100))
+
+    # 3. เรียก DB แบบ Async
+    success = await db.add_symbol(symbol, money_limit, cost_st)
+    
+    if success:
+        return {"status": "success", "message": f"Added {symbol}"}
+    else:
+        return {"status": "error", "message": "Add failed (Duplicate or Error)"}
 
 @app.delete("/delete_symbol/{symbol_id}")
-def delete_symbol(symbol_id: int):
+async def delete_symbol(symbol_id: int): # ต้องเป็น async
     try:
-        db.delete_symbol_data(symbol_id)
+        # เรียก DB แบบ Async (ต้องไปเพิ่มฟังก์ชันนี้ใน database.py ด้วยนะครับ)
+        await db.delete_symbol_data(symbol_id) 
         return {"message": f"Deleted ID {symbol_id}"}
     except Exception as e:
         return {"error": str(e)}
 
 @app.put("/update_symbol/{symbol_id}")
-def update_symbol(symbol_id: int, item: UpdateSymbolModel):
+async def update_symbol(symbol_id: int, item: UpdateSymbolModel): # ต้องเป็น async
     try:
-        # แปลงเป็น dict เพื่อส่งให้ db
         data = {
             "status": item.status,
             "money_limit": item.money_limit,
             "cost_st": item.cost_st
         }
-        db.update_symbol_data(symbol_id, data)
+        # เรียก DB แบบ Async
+        await db.update_symbol_data(symbol_id, data)
         return {"message": f"Updated ID {symbol_id}"}
     except Exception as e:
         return {"error": str(e)}
+    
+@app.get("/history")
+async def history():
+    return await db.get_orders()
 
 # --- WebSocket Endpoint ---
 @app.websocket("/ws")
@@ -154,7 +160,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await ws_manager.connect(websocket)
     try:
         while True:
-            await websocket.receive_text() # Keep connection alive
+            await websocket.receive_text()
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
 

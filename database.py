@@ -1,85 +1,102 @@
-import sqlite3
+import aiosqlite
 import time
+from config import DB_NAME
 
-DB_NAME = "app.db"
-
+# ฟังก์ชันนี้ใช้ตอนเปิดโปรแกรมครั้งแรก (Sync ได้ ไม่เป็นไร)
 def init_db():
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS watched_symbols (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT UNIQUE,
-                cost REAL DEFAULT 0,
-                coin REAL DEFAULT 0,
-                last_price REAL DEFAULT 0,
-                status TEXT DEFAULT 'false',
-                money_limit REAL DEFAULT 0,
-                cost_st REAL DEFAULT 0,
-                cost_ft REAL DEFAULT 0,
-                cost_ft_price REAL DEFAULT 0,
-                coin_ft REAL DEFAULT 0,
-                coin_ft_price REAL DEFAULT 0
+    import sqlite3
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS symbols (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT UNIQUE,
+            money_limit REAL,
+            cost_st REAL,
+            cost REAL DEFAULT 0,
+            coin REAL DEFAULT 0,
+            status TEXT DEFAULT 'true'
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id TEXT,
+            symbol TEXT,
+            type TEXT,
+            amount REAL,
+            rate REAL,
+            ts REAL,
+            reason TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+# --- Async Functions ---
+
+async def get_symbols():
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM symbols WHERE status='true'") as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+async def add_symbol(symbol, money_limit, cost_st):
+    async with aiosqlite.connect(DB_NAME) as db:
+        try:
+            await db.execute(
+                "INSERT INTO symbols (symbol, money_limit, cost_st) VALUES (?, ?, ?)",
+                (symbol, money_limit, cost_st)
             )
-        """)
-        # สร้างตาราง orders สำหรับเก็บประวัติ (ตัวอย่างย่อ)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS orders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT,
-                side TEXT,
-                amount REAL,
-                rate REAL,
-                timestamp INTEGER,
-                comment TEXT
-            )
-        """)
-        conn.commit()
+            await db.commit()
+            return True
+        except:
+            return False
 
-def get_symbols():
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM watched_symbols")
-        return [dict(row) for row in cursor.fetchall()]
+async def update_cost_coin(s_id, new_cost, new_coin):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "UPDATE symbols SET cost=?, coin=? WHERE id=?",
+            (new_cost, new_coin, s_id)
+        )
+        await db.commit()
 
-def update_cost_coin(symbol_id, new_cost, new_coin, last_price):
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE watched_symbols 
-            SET cost=?, coin=?, last_price=? 
-            WHERE id=?
-        """, (new_cost, new_coin, last_price, symbol_id))
-        conn.commit()
+async def save_order(order_data, reason):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("""
+            INSERT INTO orders (order_id, symbol, type, amount, rate, ts, reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            str(order_data.get('id', '')),
+            order_data.get('sym', ''), 
+            order_data.get('typ', ''),
+            float(order_data.get('amt', 0)),
+            float(order_data.get('rat', 0)),
+            float(order_data.get('ts', time.time())),
+            reason
+        ))
+        await db.commit()
 
-def save_order(order_data, comment):
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO orders (symbol, side, amount, rate, timestamp, comment)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (order_data.get('sym'), order_data.get('side', 'unknown'), 
-              order_data.get('amt'), order_data.get('rat'), 
-              int(time.time()), comment))
-        conn.commit()
+# --- 👇 เพิ่ม 2 ฟังก์ชันนี้ เพื่อให้ Main.py ทำงานได้ครบถ้วน 👇 ---
 
-def delete_symbol_data(id: int):
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM watched_symbols WHERE id=?", (id,))
-        conn.commit()
+async def delete_symbol_data(s_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("DELETE FROM symbols WHERE id=?", (s_id,))
+        await db.commit()
 
-def update_symbol_data(id: int, data: dict):
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.cursor()
-        # อัปเดตเฉพาะค่าที่เราอนุญาตให้แก้ (User Config)
-        cursor.execute("""
-            UPDATE watched_symbols 
-            SET status=?, money_limit=?, cost_st=?
-            WHERE id=?
-        """, (data['status'], data['money_limit'], data['cost_st'], id))
-        conn.commit()
+async def update_symbol_data(s_id, data):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "UPDATE symbols SET status=?, money_limit=?, cost_st=? WHERE id=?",
+            (data['status'], data['money_limit'], data['cost_st'], s_id)
+        )
+        await db.commit()
 
-# รันครั้งแรกเพื่อสร้างตาราง
-init_db()
+async def get_orders(limit=50):
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        # ดึงข้อมูล เรียงจากเวลาล่าสุด (ts DESC)
+        async with db.execute(f"SELECT * FROM orders ORDER BY ts DESC LIMIT {limit}") as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
