@@ -11,45 +11,57 @@ import config
 
 load_dotenv()
 
-API_KEY = os.getenv("API_KEY")
-API_SECRET = os.getenv("API_SECRET")
-BASE_URL = os.getenv("BASE_URL", "https://api.bitkub.com")
-
 class BitkubClient:
     def __init__(self):
+        self.api_key = os.getenv("API_KEY")
+        self.api_secret = os.getenv("API_SECRET")
+        self.base_url = os.getenv("BASE_URL", "https://api.bitkub.com")
+        
+        # Default Headers
         self.headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "X-BTK-APIKEY": API_KEY,
+            "X-BTK-APIKEY": self.api_key,
         }
 
-    def _sign_payload(self, payload):
-        ts = int(time.time())
-        payload["ts"] = ts
-        payload["sig"] = hmac.new(
-            API_SECRET.encode('utf-8'),
-            json.dumps(payload).encode('utf-8'),
+    # --- 🟢 (1) ขอเวลา Server เป็น Milliseconds (ตาม Doc V3) ---
+    async def get_server_timestamp(self, client: httpx.AsyncClient):
+        try:
+            response = await client.get(f"{self.base_url}/api/v3/servertime")
+            if response.status_code == 200:
+                # Doc V3: Response คือตัวเลข timestamp (ms) เพียวๆ
+                return int(response.text)
+            else:
+                print(f"⚠️ Get Server Time Failed: {response.text}")
+                # Fallback: ใช้เวลาเครื่อง * 1000 ให้เป็น ms
+                return int(time.time() * 1000)
+        except Exception as e:
+            print(f"⚠️ Get Server Time Error: {e}")
+            return int(time.time() * 1000)
+
+    # --- 🟢 (2) สร้าง Signature แบบ V3 ---
+    # สูตร: HMAC_SHA256( Timestamp + Method + Endpoint + Payload )
+    def _sign_v3(self, timestamp_ms, method, endpoint, payload_str):
+        # รวม String ตามลำดับที่ Doc กำหนด
+        sig_payload = f"{timestamp_ms}{method}{endpoint}{payload_str}"
+        
+        return hmac.new(
+            self.api_secret.encode('utf-8'),
+            sig_payload.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
-        return payload
-
-    # เปิดไฟล์ bitkub.py แล้วแก้ฟังก์ชัน get_candles เป็นแบบนี้
 
     async def get_candles(self, client: httpx.AsyncClient, symbol, resolution=15):
         try:
-            # แปลงชื่อเป็น API Format (BTC_THB) อัตโนมัติ
             query_symbol = utils.normalize_symbol(symbol, to_api=True)
-
             current_time = int(time.time())
-            from_time = current_time - (1440 * 60) # 24 hours
+            from_time = current_time - (1440 * 60)
             
-            # ใช้ query_symbol ที่สลับแล้วส่งไปขอ API
-            url = f"{BASE_URL}/tradingview/history?symbol={query_symbol}&resolution={resolution}&from={from_time}&to={current_time}"
-            
+            url = f"{self.base_url}/tradingview/history?symbol={query_symbol}&resolution={resolution}&from={from_time}&to={current_time}"
             response = await client.get(url, timeout=10.0)
             data = response.json()
             
-            if data["s"] == "ok":
+            if data.get("s") == "ok":
                 df = pd.DataFrame({
                     "timestamp": pd.to_datetime(data["t"], unit="s"),
                     "close": data["c"],
@@ -63,99 +75,113 @@ class BitkubClient:
             return None        
         
     async def get_wallet(self, client: httpx.AsyncClient):
-        # สร้าง payload สำหรับอ่าน wallet
-        payload = {"ts": int(time.time())}
-        payload["sig"] = hmac.new(
-            API_SECRET.encode('utf-8'),
-            json.dumps(payload).encode('utf-8'),
-            hashlib.sha256
-        ).hexdigest()
+        endpoint = "/api/v3/market/wallet"
+        method = "POST"
+        
+        # 🟢 ขอเวลา (ms)
+        ts = await self.get_server_timestamp(client)
+        
+        # Wallet V3 ไม่มี Parameter แต่เป็น POST จึงส่ง Empty JSON
+        payload = {}
+        payload_str = json.dumps(payload, separators=(',', ':'), sort_keys=True)
+        
+        # สร้าง Signature
+        sig = self._sign_v3(ts, method, endpoint, payload_str)
+        
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-BTK-APIKEY": self.api_key,
+            "X-BTK-TIMESTAMP": str(ts),
+            "X-BTK-SIGN": sig
+        }
         
         try:
-            response = await client.post(f"{BASE_URL}/api/market/wallet", json=payload, headers=self.headers)
+            # ส่ง payload_str (ซึ่งคือ "{}")
+            response = await client.post(f"{self.base_url}{endpoint}", headers=headers, data=payload_str)
             return response.json()
         except Exception as e:
             print(f"Wallet API Error: {e}")
             return {"error": 1}
 
-    # ในไฟล์ bitkub.py
-
     async def place_order(self, client: httpx.AsyncClient, sym, amt, rat, side, type='limit'):
-        # แปลงชื่อเป็น API Format (BTC_THB) อัตโนมัติ
-        query_symbol = utils.normalize_symbol(sym, to_api=True)
+        query_symbol = utils.normalize_symbol(sym, to_api=True).lower()
 
-        payload = {
-            "sym": query_symbol, # ใช้ตัวแปรใหม่ที่สลับแล้ว
-            "amt": amt,
-            "rat": rat,
-            "typ": type,
-            "ts": int(time.time())
-        }
-        
-        # Sign Payload
-        payload["sig"] = hmac.new(
-            API_SECRET.encode('utf-8'),
-            json.dumps(payload).encode('utf-8'),
-            hashlib.sha256
-        ).hexdigest()
-
-        # เลือก Endpoint ให้ถูก (v3)
-        endpoint = "/api/v3/market/place-bid" if side == 'buy' else "/api/v3/market/place-ask"
-        
-        try:
-            response = await client.post(f"{BASE_URL}{endpoint}", json=payload, headers=self.headers)
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-
-    async def cancel_order(self, client: httpx.AsyncClient, sym, order_id, side):
-         # ... (Implement Cancel Logic similar to place_order) ...
-         pass
-    
-    # เพิ่มลงใน class BitkubClient ในไฟล์ bitkub.py
-
-    async def get_asks(self, client: httpx.AsyncClient, sym, limit=5):
-        """
-        ดึงรายการคนตั้งขาย (Asks) เพื่อดูว่ามีคนขวางขายที่ราคาเท่าไหร่
-        Endpoint: /api/v3/market/asks
-        """
-        # 1. สลับชื่อเหรียญ (THB_BTC -> BTC_THB)
-        if sym.startswith("THB_"):
-            parts = sym.split("_")
-            if len(parts) == 2:
-                query_symbol = f"{parts[1]}_{parts[0]}"
-            else:
-                query_symbol = sym
+        if side.upper() == 'BUY':
+            endpoint = "/api/v3/market/place-bid"
+        elif side.upper() == 'SELL':
+            endpoint = "/api/v3/market/place-ask"
         else:
-            query_symbol = sym
+            return {'error': 999, 'result': 'Invalid side'}
+        
+        method = "POST"
 
-        # 2. ยิง API
+        # แปลงเป็น float เพื่อคำนวณ
+        safe_amt = float(amt)
+        safe_rat = float(rat)
+
+        # --- 🟢 (NEW) ตรวจสอบขั้นต่ำ 10 บาท ก่อนยิง API ---
+        # ป้องกัน Error 12 จากฝั่ง Client เลย ไม่ต้องรอ Server ตอบกลับ
+        total_value = safe_amt * safe_rat
+        if total_value < 10:
+            print(f"⚠️ Order Rejected (Client-side): มูลค่ารวม {total_value} บาท (ต่ำกว่าขั้นต่ำ 10 บาท)")
+            return {
+                "error": 12, 
+                "result": f"Amount too low. Total value: {total_value} THB (Min: 10 THB)"
+            }
+        # ------------------------------------------------
+
+        # 🟢 ปรับปรุงการจัดการทศนิยม
+        # Amount ควรมีทศนิยมได้เยอะ (เช่น 8 ตำแหน่ง) ส่วน Price (THB) เอา 2 ตำแหน่ง
+        def clean_num(n, is_amt=False):
+            if n == int(n): return int(n)
+            if is_amt:
+                # ถ้าเป็น Amount ให้ปัดไม่เกิน 8 ตำแหน่ง เพื่อป้องกัน 0.00001 กลายเป็น 0.00
+                return round(float(n), 8) 
+            return round(float(n), 2)
+
+        # 🟢 ขอเวลา (ms)
+        ts = await self.get_server_timestamp(client)
+
+        # 🟢 Payload V3
+        payload = {
+            "sym": query_symbol,
+            "amt": clean_num(safe_amt, is_amt=True), # ใช้ is_amt=True
+            "rat": clean_num(safe_rat, is_amt=False),
+            "typ": type
+        }
+
+        # แปลงเป็น JSON String ห้ามมีเว้นวรรค
+        payload_str = json.dumps(payload, separators=(',', ':'), sort_keys=True)
+        
+        # 🟢 สร้าง Signature (Timestamp + Method + Endpoint + Payload)
+        sig = self._sign_v3(ts, method, endpoint, payload_str)
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-BTK-APIKEY": self.api_key,
+            "X-BTK-TIMESTAMP": str(ts),
+            "X-BTK-SIGN": sig
+        }
+
+        url = f"{self.base_url}{endpoint}"
         try:
-            url = f"{BASE_URL}/api/v3/market/asks?sym={query_symbol}&lmt={limit}"
-            response = await client.get(url, headers=self.headers)
+            response = await client.post(url, headers=headers, data=payload_str)
+            
+            # Debug Error กรณีมีปัญหา
+            if response.status_code != 200:
+                print(f"❌ Bitkub API Error ({response.status_code}): {response.text}")
+                print(f"   Payload Sent: {payload_str}")
+                
             return response.json()
         except Exception as e:
-            print(f"Error fetching asks for {sym}: {e}")
-            return {"error": 1, "result": []}
+            return {"error": -1, "result": str(e)}
 
     async def get_bids(self, client: httpx.AsyncClient, sym, limit=5):
-        """
-        ดึงรายการคนตั้งรับซื้อ (Bids)
-        Endpoint: /api/v3/market/bids
-        """
-        # 1. สลับชื่อเหรียญ (THB_BTC -> BTC_THB)
-        if sym.startswith("THB_"):
-            parts = sym.split("_")
-            if len(parts) == 2:
-                query_symbol = f"{parts[1]}_{parts[0]}"
-            else:
-                query_symbol = sym
-        else:
-            query_symbol = sym
-
-        # 2. ยิง API
+        query_symbol = utils.normalize_symbol(sym, to_api=True)
         try:
-            url = f"{BASE_URL}/api/v3/market/bids?sym={query_symbol}&lmt={limit}"
+            url = f"{self.base_url}/api/v3/market/bids?sym={query_symbol}&lmt={limit}"
             response = await client.get(url, headers=self.headers)
             return response.json()
         except Exception as e:

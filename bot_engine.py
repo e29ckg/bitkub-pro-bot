@@ -148,20 +148,32 @@ class BotEngine:
                  if symbol_data['cost'] + symbol_data['cost_st'] <= symbol_data['money_limit']:
                      await self.execute_trade(client, symbol_data, "BUY", last_close, reason)
                  else:
-                     await self.log_and_broadcast(f"⚠️ {sym} BUY signal but Money Limit exceeded.")
+                     # 🔴 เพิ่มแจ้งเตือน: เงินเต็มงบ
+                     msg = f"⚠️ {sym}: Signal BUY but Money Limit Exceeded ({symbol_data['cost']}/{symbol_data['money_limit']})"
+                     await self.log_and_broadcast(msg)
             
-            # 3.2 มีของอยู่แล้ว -> ทำ DCA (ใช้ Config)
+            # 3.2 มีของอยู่แล้ว -> ทำ DCA
             else:
                 if symbol_data['coin'] > 0:
                     avg_price = symbol_data['cost'] / symbol_data['coin']
-                    
-                    # แปลงจาก config เป็นทศนิยม (เช่น 2.0 -> 0.02)
                     dca_percentage = config.DCA_DROP_PCT / 100
+                    target_dca_price = avg_price * (1 - dca_percentage)
                     
-                    if last_close < (avg_price * (1 - dca_percentage)):
+                    # เช็คราคา: ลงมาเยอะพอหรือยัง?
+                    if last_close < target_dca_price:
+                        # เช็คเงิน: พอให้ซื้อเพิ่มไหม?
                         if symbol_data['cost'] + symbol_data['cost_st'] <= symbol_data['money_limit']:
                             reason_dca = f"{reason} (DCA: Price dropped > {config.DCA_DROP_PCT}%)"
                             await self.execute_trade(client, symbol_data, "BUY", last_close, reason_dca)
+                        else:
+                            # 🔴 เพิ่มแจ้งเตือน: จะ DCA แต่เงินเต็มงบ
+                            msg = f"⚠️ {sym}: Want to DCA but Money Limit Exceeded"
+                            await self.log_and_broadcast(msg)
+                    else:
+                        # 🔴 เพิ่มแจ้งเตือน: สัญญาณมา แต่ราคายังลงไม่ถึงเป้า DCA
+                        # (อันนี้อาจจะไม่ต้องส่งเข้า Telegram ก็ได้ เพราะมันจะแจ้งบ่อย ถ้าอยากให้แจ้งก็เอา comment ออก)
+                        msg = f"⏳ {sym}: Signal BUY but Waiting for DCA target (< {target_dca_price:.2f})"
+                        await self.ws_manager.broadcast(msg) # ส่งเข้าเว็บอย่างเดียวพอ กันรำคาญ
 
         # === กรณีสัญญาณสั่งขาย (SELL) ===
         elif signal == "SELL":

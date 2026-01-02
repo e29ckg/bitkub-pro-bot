@@ -4,7 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import asyncio
 import database as db
-import utils # <--- เรียกใช้ Utils ที่สร้างใหม่
+import utils 
+from bitkub import BitkubClient 
+import httpx
 from bot_engine import BotEngine
 from fastapi.staticfiles import StaticFiles
 import os
@@ -56,6 +58,12 @@ class UpdateSymbolModel(BaseModel):
     status: str
     money_limit: float
     cost_st: float
+
+# --- Pydantic Model สำหรับ Test Trade ---
+class TestTradeModel(BaseModel):
+    symbol: str   # เช่น BTC
+    amount: float # เงินบาทที่จะซื้อ (BUY) หรือ จำนวนเหรียญที่จะขาย (SELL)
+    rate: float   # ราคาที่ต้องการ (ถ้าใส่ 0 = Market Price แต่ Bitkub แนะนำให้ใส่ราคา)
 
 # --- Routes ---
 
@@ -156,6 +164,52 @@ async def update_symbol(symbol_id: int, item: UpdateSymbolModel): # ต้อง
 @app.get("/history")
 async def history():
     return await db.get_orders()
+
+# แก้ไขเฉพาะส่วน Route test_buy ใน main.py
+
+@app.post("/test/buy")
+async def test_buy(order: TestTradeModel):
+    api = BitkubClient()
+    async with httpx.AsyncClient() as client:
+        
+        res = await api.place_order(
+            client, 
+            sym=order.symbol, 
+            amt=order.amount, 
+            rat=order.rate, 
+            side='BUY', 
+            type='limit'
+        )
+        return res
+
+@app.post("/test/sell")
+async def test_sell(order: TestTradeModel):
+    api = BitkubClient()
+    async with httpx.AsyncClient() as client:
+        
+        res = await api.place_order(
+            client, 
+            sym=order.symbol, 
+            amt=order.amount, 
+            rat=order.rate, 
+            side='SELL', 
+            type='limit'
+        )
+        return res
+    
+@app.get("/test/price/{symbol}")
+async def check_current_price(symbol: str):
+    """
+    เช็คราคาล่าสุดก่อนกดซื้อ (จะได้กรอก Rate ถูก)
+    """
+    api = BitkubClient()
+    async with httpx.AsyncClient() as client:
+        # ใช้ get_candles เพื่อดูราคาปิดล่าสุด
+        df = await api.get_candles(client, symbol)
+        if df is not None:
+            last_price = df.iloc[-1]["close"]
+            return {"symbol": symbol, "last_price": last_price}
+        return {"error": "Could not fetch price"}
 
 # --- WebSocket Endpoint ---
 @app.websocket("/ws")
