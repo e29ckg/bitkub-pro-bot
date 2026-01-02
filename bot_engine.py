@@ -113,8 +113,45 @@ class BotEngine:
                 await db.save_order(sym, result, f"SELL: {reason}")
                 
                 await self.log_and_broadcast(f"✅ {sym} SELL Success @ {price}")
+    
+    async def clear_pending_orders(self, bitkub_client, http_client, symbol):
+        """
+        ฟังก์ชันนี้จะเช็คว่ามีออเดอร์ค้างไหม ถ้ามีจะยกเลิกให้หมด
+        """
+        print(f"🧹 Checking pending orders for {symbol}...")
+        
+        # 1. ดึงออเดอร์ที่ค้างอยู่
+        orders_res = await bitkub_client.get_open_orders(http_client, symbol)
+        
+        if orders_res.get('error') != 0:
+            print(f"❌ Failed to get open orders: {orders_res}")
+            return
+
+        open_orders = orders_res.get('result', [])
+        
+        if not open_orders:
+            print(f"✅ No pending orders for {symbol}.")
+            return
+
+        # 2. วนลูปยกเลิกทุกตัว
+        print(f"⚠️ Found {len(open_orders)} pending orders. Cancelling...")
+        
+        for order in open_orders:
+            # โครงสร้าง result ของ open-orders: {'id': '...', 'side': 'buy', ...}
+            o_id = order.get('id')
+            o_side = order.get('side') # buy หรือ sell
+            
+            cancel_res = await bitkub_client.cancel_order(http_client, symbol, o_id, o_side)
+            
+            if cancel_res.get('error') == 0:
+                print(f"   ✅ Cancelled {o_id} success.")
+            else:
+                print(f"   ❌ Cancel failed {o_id}: {cancel_res}")
+                
+        print("🧹 Clear pending orders done.")
 
     async def process_symbol(self, client, symbol_data):
+        bk = BitkubClient()
         sym = symbol_data['symbol']
         status = symbol_data['status']
         
@@ -134,9 +171,11 @@ class BotEngine:
         await self.ws_manager.broadcast(log_message)
 
         if signal != previous_signal:
+            await self.clear_pending_orders(bk, client, sym)
             if signal in ["BUY", "SELL"]:
                 msg = f"🚨 {sym} Status Changed!\nFrom: {previous_signal}\nTo: {signal}\nReason: {reason}\nPrice: {last_close}"
                 await self.send_telegram(msg)
+
             self.last_status[sym] = signal
             
         # 3. ตัดสินใจซื้อขาย (Trading Logic)

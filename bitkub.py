@@ -187,3 +187,64 @@ class BitkubClient:
         except Exception as e:
             print(f"Error fetching bids for {sym}: {e}")
             return {"error": 1, "result": []}
+        
+    # --- 🟢 (ใหม่) ดึงออเดอร์ที่ค้างอยู่ ---
+    async def get_open_orders(self, client: httpx.AsyncClient, sym):
+        endpoint = "/api/v3/market/my-open-orders"
+        method = "POST"
+        query_symbol = utils.normalize_symbol(sym, to_api=True).lower()
+        
+        ts = await self.get_server_timestamp(client)
+        
+        payload = {"sym": query_symbol}
+        payload_str = json.dumps(payload, separators=(',', ':'), sort_keys=True)
+        sig = self._sign_v3(ts, method, endpoint, payload_str)
+        
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-BTK-APIKEY": self.api_key,
+            "X-BTK-TIMESTAMP": str(ts),
+            "X-BTK-SIGN": sig
+        }
+        
+        try:
+            response = await client.post(f"{self.base_url}{endpoint}", headers=headers, data=payload_str)
+            return response.json()
+        except Exception as e:
+            print(f"Get Open Orders Error: {e}")
+            return {"error": 999, "result": []}
+
+    # --- 🟢 (ใหม่) ยกเลิกออเดอร์ ---
+    async def cancel_order(self, client: httpx.AsyncClient, sym, order_id, side):
+        endpoint = "/api/v3/market/cancel-order"
+        method = "POST"
+        query_symbol = utils.normalize_symbol(sym, to_api=True).lower()
+        
+        ts = await self.get_server_timestamp(client)
+        
+        # Bitkub V3 Cancel ต้องส่ง sym, id, sd (side)
+        payload = {
+            "sym": query_symbol,
+            "id": str(order_id),
+            "sd": side.lower() # 'buy' or 'sell'
+        }
+        
+        payload_str = json.dumps(payload, separators=(',', ':'), sort_keys=True)
+        sig = self._sign_v3(ts, method, endpoint, payload_str)
+        
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-BTK-APIKEY": self.api_key,
+            "X-BTK-TIMESTAMP": str(ts),
+            "X-BTK-SIGN": sig
+        }
+        
+        try:
+            print(f"🚫 Cancelling order {order_id} ({side})...")
+            response = await client.post(f"{self.base_url}{endpoint}", headers=headers, data=payload_str)
+            return response.json()
+        except Exception as e:
+            print(f"Cancel Order Error: {e}")
+            return {"error": 999}
