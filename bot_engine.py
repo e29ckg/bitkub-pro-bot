@@ -93,7 +93,7 @@ class BotEngine:
                 
                 # --- ใช้ Async DB (ไม่ต้องมี to_thread) ---
                 await db.update_cost_coin(s_id, new_cost, new_coin)
-                await db.save_order(result, f"BUY: {reason}")
+                await db.save_order(sym, result, f"BUY: {reason}")
                 
                 await self.log_and_broadcast(f"✅ {sym} BUY Success @ {price}")
             else:
@@ -110,7 +110,7 @@ class BotEngine:
                 
                 # --- ใช้ Async DB ---
                 await db.update_cost_coin(s_id, new_cost, new_coin)
-                await db.save_order(result, f"SELL: {reason}")
+                await db.save_order(sym, result, f"SELL: {reason}")
                 
                 await self.log_and_broadcast(f"✅ {sym} SELL Success @ {price}")
 

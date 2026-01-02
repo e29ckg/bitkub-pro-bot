@@ -62,21 +62,30 @@ async def update_cost_coin(s_id, new_cost, new_coin):
         )
         await db.commit()
 
-async def save_order(order_data, reason):
+async def save_order(symbol, order_data, reason):
+    # 1. ดึงข้อมูล result ออกมาจาก JSON (เพราะ response มี error, result)
+    # ถ้าส่งมาทั้งก้อน ให้ดึง key 'result' แต่ถ้าส่งมาแค่เนื้อใน ก็ใช้ได้เลย
+    if "result" in order_data:
+        data = order_data["result"]
+    else:
+        data = order_data
+
+    # 2. บันทึกลงฐานข้อมูล
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("""
             INSERT INTO orders (order_id, symbol, type, amount, rate, ts, reason)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
-            str(order_data.get('id', '')),
-            order_data.get('sym', ''), 
-            order_data.get('typ', ''),
-            float(order_data.get('amt', 0)),
-            float(order_data.get('rat', 0)),
-            float(order_data.get('ts', time.time())),
+            str(data.get('id', '')),        # id จาก result
+            symbol,                         # symbol รับมาจาก parameter (เพราะใน result ไม่มี)
+            data.get('typ', 'limit'),       # typ
+            float(data.get('amt', 0)),      # amt
+            float(data.get('rat', 0)),      # rat
+            int(data.get('ts', int(time.time()))), # ts (Bitkub ส่งมาเป็น int หรือ string ก็แปลงเป็น int)
             reason
         ))
         await db.commit()
+        print(f"✅ Saved order {data.get('id')} for {symbol} to DB.")
 
 # --- 👇 เพิ่ม 2 ฟังก์ชันนี้ เพื่อให้ Main.py ทำงานได้ครบถ้วน 👇 ---
 
