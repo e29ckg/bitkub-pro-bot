@@ -6,6 +6,7 @@ import database as db
 import indicators as ind
 import config  # <--- เรียกใช้ค่า Config
 import utils   # <--- (เผื่อเรียกใช้ในอนาคต)
+import time
 from bitkub import BitkubClient
 
 # ตั้งค่า Logging
@@ -36,7 +37,7 @@ class BotEngine:
         logging.info(message)
         await self.ws_manager.broadcast(message)
         
-        if "BUY" in message or "SELL" in message or "Error" in message or "Active" in message:
+        if "BUY" in message or "SELL" in message or "Error" in message or "Active" in message or "Changed" in message:
             await self.send_telegram(message)
 
     def analyze_market(self, df, symbol):
@@ -85,42 +86,65 @@ class BotEngine:
                 await self.log_and_broadcast(f"⚠️ {sym}: ไม่พอซื้อ (มี {thb_balance} บาท)")
                 return
 
-            res = await self.api.place_order(client, sym, cost_st, price, 'buy')
+            # คำนวณจำนวนเหรียญสำหรับ Limit Order
+            # buy_volume = cost_st / price
+            buy_volume = cost_st
+            
+            # ส่ง type='limit'
+            res = await self.api.place_order(client, sym, buy_volume, price, 'buy', type='limit')
+            
             if res.get('error') == 0:
                 result = res['result']
-                new_cost = cost + result['amt']
-                new_coin = coin + result['rec']
                 
-                # --- ใช้ Async DB (ไม่ต้องมี to_thread) ---
+                # ถ้า Limit ยังไม่ Match ทันที result['rec'] อาจเป็น 0
+                received_coin = result.get('rec', 0)
+                if received_coin == 0: received_coin = buy_volume
+
+                # Update DB: บวก Cost(บาท) และ Coin(เหรียญ)
+                new_cost = cost + cost_st
+                new_coin = coin + received_coin
+                
                 await db.update_cost_coin(s_id, new_cost, new_coin)
                 await db.save_order(sym, result, f"BUY: {reason}")
                 
-                await self.log_and_broadcast(f"✅ {sym} BUY Success @ {price}")
+                await self.log_and_broadcast(f"✅ {sym} BUY Success @ {price} (Vol: {buy_volume:.6f})")
             else:
                 await self.log_and_broadcast(f"❌ {sym} BUY Error: {res.get('error')}")
 
         elif action == "SELL":
             if coin <= 0: return
+            
+            # เช็คขั้นต่ำ 10 บาท
+            if (coin * price) < 10:
+                await self.log_and_broadcast(f"⚠️ {sym}: มูลค่าขายน้อยกว่า 10 บาท (ข้าม)")
+                return
 
-            res = await self.api.place_order(client, sym, coin, price, 'sell')
+            res = await self.api.place_order(client, sym, coin, price, 'sell', type='limit')
+            
             if res.get('error') == 0:
                 result = res['result']
-                new_cost = max(0, cost - result['rec'])
-                new_coin = max(0, coin - result['amt'])
                 
-                # --- ใช้ Async DB ---
+                thb_rec = result.get('rec', 0)
+                if thb_rec == 0: thb_rec = coin * price
+
+                # Update DB: ลด Cost ลงตามเงินที่ได้คืน, Coin เหลือ 0
+                new_cost = max(0, cost - thb_rec)
+                new_coin = 0 # ขายหมด
+                
                 await db.update_cost_coin(s_id, new_cost, new_coin)
                 await db.save_order(sym, result, f"SELL: {reason}")
                 
                 await self.log_and_broadcast(f"✅ {sym} SELL Success @ {price}")
+            else:
+                 await self.log_and_broadcast(f"❌ {sym} SELL Error: {res.get('error')}")
     
     async def clear_pending_orders(self, bitkub_client, http_client, symbol):
         """
-        ฟังก์ชันนี้จะเช็คว่ามีออเดอร์ค้างไหม ถ้ามีจะยกเลิกให้หมด
+        เคลียร์ออเดอร์ค้าง และคืนค่า Cost/Coin ใน Database
         """
         print(f"🧹 Checking pending orders for {symbol}...")
         
-        # 1. ดึงออเดอร์ที่ค้างอยู่
+        # 1. ดึงออเดอร์ที่ค้างอยู่จาก Bitkub
         orders_res = await bitkub_client.get_open_orders(http_client, symbol)
         
         if orders_res.get('error') != 0:
@@ -130,28 +154,71 @@ class BotEngine:
         open_orders = orders_res.get('result', [])
         
         if not open_orders:
-            print(f"✅ No pending orders for {symbol}.")
+            # print(f"✅ No pending orders for {symbol}.") 
             return
 
-        # 2. วนลูปยกเลิกทุกตัว
-        print(f"⚠️ Found {len(open_orders)} pending orders. Cancelling...")
+        print(f"⚠️ {symbol}: Found {len(open_orders)} pending orders. Cancelling & Reverting DB...")
+
+        # 2. ดึงข้อมูลปัจจุบันจาก DB
+        current_db_data = await db.get_symbol_by_name(symbol)
         
+        if not current_db_data:
+            print(f"❌ Database error: Symbol {symbol} not found.")
+            return
+
+        current_cost = current_db_data['cost']
+        current_coin = current_db_data['coin']
+        s_id = current_db_data['id']
+
+        # 3. วนลูปยกเลิกทีละตัว
         for order in open_orders:
-            # โครงสร้าง result ของ open-orders: {'id': '...', 'side': 'buy', ...}
             o_id = order.get('id')
-            o_side = order.get('side') # buy หรือ sell
+            o_side = order.get('side').lower()
+            o_amt = float(order.get('amt', 0)) 
+            o_rate = float(order.get('rate', 0))
             
+            # ยิง API ยกเลิก
             cancel_res = await bitkub_client.cancel_order(http_client, symbol, o_id, o_side)
             
             if cancel_res.get('error') == 0:
-                print(f"   ✅ Cancelled {o_id} success.")
+                print(f"   ✅ Cancelled {o_id} ({o_side}) success.")
+                
+                # --- 4. Logic คืนค่า (Revert DB) ---
+                total_value = o_amt * o_rate
+                log_reason = ""
+
+                if o_side == 'buy':
+                    # ยกเลิกซื้อ: เอา Cost ที่บวกไว้ออก, เอา Coin ที่บวกไว้ออก
+                    current_cost = max(0, current_cost - total_value)
+                    current_coin = max(0, current_coin - o_amt)
+                    log_reason = f"Cancelled BUY: Revert -{total_value:.2f} THB, -{o_amt} Coin"
+                    
+                elif o_side == 'sell':
+                    # ยกเลิกขาย: เอา Cost ที่ลบไปกลับมา, เอา Coin ที่ลบไปกลับมา
+                    current_cost = current_cost + total_value
+                    current_coin = current_coin + o_amt
+                    log_reason = f"Cancelled SELL: Return +{o_amt} Coin, Cost restored +{total_value:.2f}"
+
+                # อัปเดต DB
+                await db.update_cost_coin(s_id, current_cost, current_coin)
+                
+                # บันทึกประวัติ
+                dummy_result = {
+                    "id": o_id,
+                    "amt": o_amt,
+                    "rat": o_rate,
+                    "ts": int(time.time()),
+                    "typ": "limit"
+                }
+                await db.save_order(symbol, dummy_result, log_reason)
+                print(f"      ↪️ DB Updated: {log_reason}")
+
             else:
                 print(f"   ❌ Cancel failed {o_id}: {cancel_res}")
                 
         print("🧹 Clear pending orders done.")
 
     async def process_symbol(self, client, symbol_data):
-        bk = BitkubClient()
         sym = symbol_data['symbol']
         status = symbol_data['status']
         
@@ -164,14 +231,16 @@ class BotEngine:
         # 2. วิเคราะห์
         signal, reason, last_close = self.analyze_market(df, sym)
         
-        # --- เช็คสถานะเปลี่ยน (Telegram Alert) ---
+        # --- เช็คสถานะเปลี่ยน ---
         previous_signal = self.last_status.get(sym, "N/A")
         
         log_message = f"🔍 {sym}: {last_close} | {signal} | {reason}"
         await self.ws_manager.broadcast(log_message)
 
         if signal != previous_signal:
-            await self.clear_pending_orders(bk, client, sym)
+            # 🟢 [FIXED] เรียกใช้ method ของ class ตัวเองให้ถูกต้อง
+            await self.clear_pending_orders(self.api, client, sym)
+            
             if signal in ["BUY", "SELL"]:
                 msg = f"🚨 {sym} Status Changed!\nFrom: {previous_signal}\nTo: {signal}\nReason: {reason}\nPrice: {last_close}"
                 await self.send_telegram(msg)
@@ -187,9 +256,9 @@ class BotEngine:
                  if symbol_data['cost'] + symbol_data['cost_st'] <= symbol_data['money_limit']:
                      await self.execute_trade(client, symbol_data, "BUY", last_close, reason)
                  else:
-                     # 🔴 เพิ่มแจ้งเตือน: เงินเต็มงบ
-                     msg = f"⚠️ {sym}: Signal BUY but Money Limit Exceeded ({symbol_data['cost']}/{symbol_data['money_limit']})"
-                     await self.log_and_broadcast(msg)
+                     if previous_signal != "BUY":
+                        msg = f"⚠️ {sym}: Signal BUY but Money Limit Exceeded ({symbol_data['cost']}/{symbol_data['money_limit']})"
+                        await self.log_and_broadcast(msg)
             
             # 3.2 มีของอยู่แล้ว -> ทำ DCA
             else:
@@ -198,50 +267,43 @@ class BotEngine:
                     dca_percentage = config.DCA_DROP_PCT / 100
                     target_dca_price = avg_price * (1 - dca_percentage)
                     
-                    # เช็คราคา: ลงมาเยอะพอหรือยัง?
                     if last_close < target_dca_price:
-                        # เช็คเงิน: พอให้ซื้อเพิ่มไหม?
                         if symbol_data['cost'] + symbol_data['cost_st'] <= symbol_data['money_limit']:
                             reason_dca = f"{reason} (DCA: Price dropped > {config.DCA_DROP_PCT}%)"
                             await self.execute_trade(client, symbol_data, "BUY", last_close, reason_dca)
                         else:
-                            # 🔴 เพิ่มแจ้งเตือน: จะ DCA แต่เงินเต็มงบ
-                            msg = f"⚠️ {sym}: Want to DCA but Money Limit Exceeded"
-                            await self.log_and_broadcast(msg)
+                            if previous_signal != "BUY":
+                                msg = f"⚠️ {sym}: Want to DCA but Money Limit Exceeded"
+                                await self.log_and_broadcast(msg)
                     else:
-                        # 🔴 เพิ่มแจ้งเตือน: สัญญาณมา แต่ราคายังลงไม่ถึงเป้า DCA
-                        # (อันนี้อาจจะไม่ต้องส่งเข้า Telegram ก็ได้ เพราะมันจะแจ้งบ่อย ถ้าอยากให้แจ้งก็เอา comment ออก)
                         msg = f"⏳ {sym}: Signal BUY but Waiting for DCA target (< {target_dca_price:.2f})"
-                        await self.ws_manager.broadcast(msg) # ส่งเข้าเว็บอย่างเดียวพอ กันรำคาญ
+                        # await self.ws_manager.broadcast(msg)
 
         # === กรณีสัญญาณสั่งขาย (SELL) ===
         elif signal == "SELL":
             if symbol_data['coin'] > 0:
                 avg_cost = symbol_data['cost'] / symbol_data['coin']
                 
-                # คำนวณเป้ากำไรจาก Config (กำไร + ค่าธรรมเนียม)
                 target_pct = (config.TAKE_PROFIT_PCT + config.FEE_BUFFER) / 100
                 target_price = avg_cost * (1 + target_pct)
                 
                 current_pnl_pct = ((last_close - avg_cost) / avg_cost) * 100
 
                 if last_close >= target_price:
-                    reason_tp = f"{reason} | 💰 Take Profit (+{current_pnl_pct:.2f}%)"
+                    reason_tp = f"{reason} | 💰 TP (+{current_pnl_pct:.2f}%)"
                     await self.execute_trade(client, symbol_data, "SELL", last_close, reason_tp)
                 else:
-                    msg = f"🛡️ {sym}: Signal SELL but Price ({last_close}) < Target ({target_price:.2f}). Holding... (PNL: {current_pnl_pct:.2f}%)"
-                    await self.log_and_broadcast(msg)
+                    pass
 
     async def run_loop(self):
         self.running = True
-        await self.log_and_broadcast("🚀 Bot Started (Async Engine v2 Refactored)")
+        await self.log_and_broadcast("🚀 Bot Started (Async Engine v2 Fixed)")
         
         async with httpx.AsyncClient() as client:
             while self.running:
                 try:
                     start_time = asyncio.get_running_loop().time()
                     
-                    # --- ใช้ Async DB (ไม่ต้องมี to_thread) ---
                     symbols = await db.get_symbols()
                     
                     tasks = [self.process_symbol(client, sym) for sym in symbols]

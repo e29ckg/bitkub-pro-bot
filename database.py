@@ -109,3 +109,13 @@ async def get_orders(limit=50):
         async with db.execute(f"SELECT * FROM orders ORDER BY ts DESC LIMIT {limit}") as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
+        
+# เพิ่มใน database.py
+async def get_symbol_by_name(symbol):
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM symbols WHERE symbol = ?", (symbol,)) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
