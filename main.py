@@ -16,6 +16,9 @@ db.init_db()
 
 app = FastAPI()
 
+# --- Static Files ---
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # --- CORS ---
 app.add_middleware(
     CORSMiddleware,
