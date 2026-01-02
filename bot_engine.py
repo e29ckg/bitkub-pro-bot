@@ -136,7 +136,7 @@ class BotEngine:
                 
                 await self.log_and_broadcast(f"✅ {sym} SELL Success @ {price}")
             else:
-                 await self.log_and_broadcast(f"❌ {sym} SELL Error: {res.get('error')}")
+                await self.log_and_broadcast(f"❌ {sym} SELL Error: {res.get('error')}")
     
     async def clear_pending_orders(self, bitkub_client, http_client, symbol):
         """
@@ -148,7 +148,7 @@ class BotEngine:
         orders_res = await bitkub_client.get_open_orders(http_client, symbol)
         
         if orders_res.get('error') != 0:
-            print(f"❌ Failed to get open orders: {orders_res}")
+            await self.log_and_broadcast(f"❌ Failed to get open orders: {orders_res}")
             return
 
         open_orders = orders_res.get('result', [])
@@ -212,6 +212,7 @@ class BotEngine:
                 }
                 await db.save_order(symbol, dummy_result, log_reason)
                 print(f"      ↪️ DB Updated: {log_reason}")
+                await self.log_and_broadcast(f"🧹 {symbol}: Cancelled order {o_id} and reverted DB.")
 
             else:
                 print(f"   ❌ Cancel failed {o_id}: {cancel_res}")
