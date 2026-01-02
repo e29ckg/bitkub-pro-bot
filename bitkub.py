@@ -122,7 +122,10 @@ class BitkubClient:
 
         # --- 🟢 (NEW) ตรวจสอบขั้นต่ำ 10 บาท ก่อนยิง API ---
         # ป้องกัน Error 12 จากฝั่ง Client เลย ไม่ต้องรอ Server ตอบกลับ
-        total_value = safe_amt * safe_rat
+        total_value = safe_amt
+        if side.upper() == 'SELL':
+            total_value = safe_amt * safe_rat
+
         if total_value < 10:
             print(f"⚠️ Order Rejected (Client-side): มูลค่ารวม {total_value} บาท (ต่ำกว่าขั้นต่ำ 10 บาท)")
             return {
