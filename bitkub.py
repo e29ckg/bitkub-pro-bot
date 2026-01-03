@@ -194,13 +194,16 @@ class BitkubClient:
     # --- 🟢 (ใหม่) ดึงออเดอร์ที่ค้างอยู่ ---
     async def get_open_orders(self, client: httpx.AsyncClient, sym):
         endpoint = "/api/v3/market/my-open-orders"
-        method = "POST"
+        method = "GET" # 🟢 1. เปลี่ยนเป็น GET ตาม Document
         query_symbol = utils.normalize_symbol(sym, to_api=True).lower()
         
         ts = await self.get_server_timestamp(client)
         
-        payload = {"sym": query_symbol}
-        payload_str = json.dumps(payload, separators=(',', ':'), sort_keys=True)
+        # 🟢 2. สำหรับ GET V3: Payload คือ Query String (เริ่มด้วย ?)
+        # ไม่ต้องใช้ json.dumps แต่ใช้ string format ตรงๆ
+        payload_str = f"?sym={query_symbol}" 
+        
+        # สร้าง Signature (Timestamp + Method + Endpoint + QueryString)
         sig = self._sign_v3(ts, method, endpoint, payload_str)
         
         headers = {
@@ -212,11 +215,19 @@ class BitkubClient:
         }
         
         try:
-            response = await client.post(f"{self.base_url}{endpoint}", headers=headers, data=payload_str)
+            # 🟢 3. ส่ง Request โดยต่อ URL + Query String
+            full_url = f"{self.base_url}{endpoint}{payload_str}"
+            response = await client.get(full_url, headers=headers)
+            
+            # Debug: เช็คว่าตอบอะไรกลับมา ถ้าไม่ใช่ 200
+            if response.status_code != 200:
+                print(f"❌ API Error {response.status_code}: {response.text}")
+
             return response.json()
+            
         except Exception as e:
             print(f"Get Open Orders Error: {e}")
-            return {"error": 999, "result": []}
+            return {"error": 999, "result": [], "message": str(e)}
 
     # --- 🟢 (ใหม่) ยกเลิกออเดอร์ ---
     async def cancel_order(self, client: httpx.AsyncClient, sym, order_id, side):
