@@ -165,7 +165,17 @@ async def update_symbol(symbol_id: int, item: UpdateSymbolModel): # ต้อง
 async def history():
     return await db.get_orders()
 
-# แก้ไขเฉพาะส่วน Route test_buy ใน main.py
+@app.get("/open-orders")
+async def read_open_orders(sym: str = "THB_BTC"):
+    """
+    ดึงรายการออเดอร์ที่ค้างอยู่ (Open Orders) ของเหรียญนั้นๆ
+    การใช้งาน: http://localhost:8000/open-orders?sym=THB_BTC
+    """
+    async with httpx.AsyncClient() as client:
+        bk = BitkubClient()
+        # เรียกใช้ฟังก์ชันจาก Class BitkubClient
+        response = await bk.get_open_orders(client, sym)
+        return response
 
 @app.post("/test/buy")
 async def test_buy(order: TestTradeModel):
