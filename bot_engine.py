@@ -135,8 +135,11 @@ class BotEngine:
                 await db.save_order(sym, result, f"SELL: {reason}")
                 
                 await self.log_and_broadcast(f"✅ {sym} SELL Success @ {price}")
-            else:
+            else:                
                 await self.log_and_broadcast(f"❌ {sym} SELL Error: {res.get('error')}")
+                if res.get('error') == 18:  # หากเกิดข้อผิดพลาด "ไม่พอขาย"
+                    await db.update_cost_coin(s_id, 0, 0)  # ตั้ง cost Coin เป็น 0 เพื่อแก้ไขสถานะ
+                    await self.log_and_broadcast(f"ℹ️ {sym}: Updated DB to 0 Cost/Coin due to insufficient balance.")
     
     async def clear_pending_orders(self, bitkub_client, http_client, symbol):
         """
