@@ -99,17 +99,28 @@ async def logout(response: Response):
     response = JSONResponse(content=content)
     response.delete_cookie(key="access_token")
     return response
+# ... import ...
 
-@app.post("/start")
+# 1. API เช็คสถานะ (สำหรับ JS function checkInitialStatus)
+@app.get("/bot-status")
+async def get_bot_status():
+    return {"running": bot.running}
+
+# 2. API สั่งเริ่ม (สำหรับ JS function toggleBot)
+@app.post("/start-bot")
 async def start_bot():
     if bot.running:
         return {"message": "Bot is already running"}
+    
+    # รัน Loop ใน Background
     asyncio.create_task(bot.run_loop())
     return {"message": "Bot start command received"}
 
-@app.post("/stop")
+# 3. API สั่งหยุด (สำหรับ JS function toggleBot)
+@app.post("/stop-bot")
 async def stop_bot():
     bot.running = False
+    # หมายเหตุ: Loop ใน BotEngine จะหยุดเองเมื่อจบรอบการทำงานปัจจุบัน (รอไม่เกิน 10 วิ)
     return {"message": "Bot stopping..."}
 
 # --- 🟢 ส่วนที่แก้ไขให้เป็น Async Database ---

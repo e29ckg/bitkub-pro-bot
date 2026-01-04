@@ -21,6 +21,7 @@
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #1e293b; }
         ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        
     </style>
 </head>
 <body class="h-screen flex flex-col overflow-y-auto md:overflow-hidden">
@@ -30,25 +31,24 @@
             <i class="fa-solid fa-robot text-green-400 text-2xl"></i>
             <h1 class="text-xl font-bold text-white tracking-wide">Bitkub <span class="text-green-400">Pro Bot</span></h1>
         </div>
-        
-        <div class="flex items-center gap-2 md:gap-4 w-full md:w-auto justify-center overflow-x-auto py-1">
-            <div id="connection-status" class="flex items-center gap-2 text-red-500 text-xs md:text-sm font-semibold whitespace-nowrap">
-                <i class="fa-solid fa-circle text-[8px]"></i> Offline
+          
+        <div class="flex items-center gap-4 w-full md:w-auto justify-center md:justify-end">            
+            <div id="status-badge" class="px-3 py-1 rounded-full text-sm font-semibold bg-gray-600 text-gray-200">
+                    <span class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-gray-400" id="status-dot"></span>
+                        <span id="status-text">Checking...</span>
+                    </span>
+                </div>
+
+                <button id="toggle-btn" onclick="toggleBot()" class="px-4 py-2 rounded-md font-bold text-white transition-all duration-200 bg-gray-500 cursor-wait" disabled>
+                    Loading...
+                </button>
+                
+                <button onclick="logout()" class="text-gray-400 hover:text-white ml-2">
+                    <i class="fas fa-sign-out-alt"></i> </button>
             </div>
-            <div class="h-4 md:h-6 w-px bg-slate-600 mx-1"></div>
-            
-            <button onclick="startBot()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 md:px-4 md:py-2 rounded shadow transition text-xs md:text-sm flex items-center gap-1">
-                <i class="fa-solid fa-play"></i> <span>Start</span>
-            </button>
-            <button onclick="stopBot()" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 md:px-4 md:py-2 rounded shadow transition text-xs md:text-sm flex items-center gap-1">
-                <i class="fa-solid fa-stop"></i> <span>Stop</span>
-            </button>
-            
-            <div class="h-4 md:h-6 w-px bg-slate-600 mx-1"></div>
-            <button onclick="logout()" class="text-slate-400 hover:text-white transition px-2" title="Logout">
-                <i class="fa-solid fa-right-from-bracket text-lg"></i>
-            </button>
         </div>
+            
     </header>
 
     <main class="flex-1 flex flex-col md:flex-row gap-4 p-2 md:p-4 overflow-visible md:overflow-hidden">
@@ -198,6 +198,8 @@
     <script>
         const API_URL = location.protocol + '//' + location.host;
         const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + "/ws";
+
+        let isBotRunning = false;
 
         // --- WebSocket & Basic Functions ---
         function connectWebSocket() {
@@ -390,13 +392,105 @@
             } catch (error) { console.error("Error loading history:", error); }
         }
 
+        function updateUI(running) {
+            isBotRunning = running;
+            const btn = document.getElementById('toggle-btn');
+            const badge = document.getElementById('status-badge');
+            const statusText = document.getElementById('status-text');
+            const statusDot = document.getElementById('status-dot');
+
+            // Reset classes
+            btn.disabled = false;
+            btn.classList.remove('cursor-wait', 'bg-gray-500', 'btn-running', 'btn-stopped', 'btn-loading');
+            
+            if (running) {
+                // ถ้าบอทกำลังรัน -> ปุ่มต้องเป็น "STOP" (สีแดง)
+                btn.innerText = "⏹ Stop Bot";
+                btn.classList.add('bg-red-600', 'hover:bg-red-700'); // Tailwind classes
+                // หรือใช้ btn.classList.add('btn-running'); // Custom CSS
+                
+                // อัปเดตป้ายสถานะ
+                statusText.innerText = "Running";
+                statusDot.classList.replace('bg-gray-400', 'bg-green-400'); // ไฟเขียว
+                badge.classList.replace('bg-gray-600', 'bg-green-900');
+                badge.classList.replace('text-gray-200', 'text-green-100');
+            } else {
+                // ถ้าบอทหยุด -> ปุ่มต้องเป็น "START" (สีเขียว)
+                btn.innerText = "▶ Start Bot";
+                btn.classList.add('bg-green-600', 'hover:bg-green-700'); // Tailwind classes
+                // หรือใช้ btn.classList.add('btn-stopped'); // Custom CSS
+
+                // อัปเดตป้ายสถานะ
+                statusText.innerText = "Stopped";
+                statusDot.classList.replace('bg-green-400', 'bg-gray-400'); // ไฟเทา
+                badge.classList.replace('bg-green-900', 'bg-gray-600');
+                badge.classList.replace('text-green-100', 'text-gray-200');
+            }
+        }
+
+        // 2. ฟังก์ชันกดปุ่ม (Toggle Action)
+        async function toggleBot() {
+            const btn = document.getElementById('toggle-btn');
+            
+            btn.disabled = true;
+            btn.innerText = "Processing...";
+            
+            try {
+                let url = isBotRunning ? '/stop-bot' : '/start-bot';
+                
+                // 🟢 แก้ตรงนี้: เพิ่ม method: 'POST'
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+
+                // ... (ส่วนอัปเดต UI เหมือนเดิม) ...
+                if (isBotRunning) {
+                    updateUI(false); 
+                    // alert("Bot Stopped!"); // ปิด alert ก็ได้ถ้าไม่อยากให้เด้ง
+                } else {
+                    updateUI(true);
+                    // alert("Bot Started!");
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                alert("Connection Error!");
+                btn.disabled = false;
+                updateUI(isBotRunning);
+            }
+        }
+
+        // 3. ฟังก์ชันเช็คสถานะเริ่มต้นเมื่อโหลดหน้าเว็บ (Get Initial Status)
+        async function checkInitialStatus() {
+            try {
+                // คุณต้องมี Endpoint สำหรับเช็คสถานะ เช่น /bot-status
+                const response = await fetch('/bot-status'); 
+                const data = await response.json();
+                
+                // สมมติ data.running ส่งมาเป็น true/false
+                updateUI(data.running); 
+
+            } catch (error) {
+                console.error("Cannot check status", error);
+                // กรณีเช็คไม่ได้ ให้ Default เป็น Stopped ไปก่อน
+                updateUI(false);
+            }
+        }
+
         // Init
         window.onload = () => {
             connectWebSocket();
             fetchSymbols();
             loadHistory();
+            checkInitialStatus();
             setInterval(fetchSymbols, 5000);
             setInterval(loadHistory, 30000);
+            setInterval(checkInitialStatus, 5000);
         };
     </script>
 </body>
