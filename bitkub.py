@@ -24,6 +24,24 @@ class BitkubClient:
             "X-BTK-APIKEY": self.api_key,
         }
 
+    # --- 🟢 เพิ่มใน Class BitkubClient ---
+    async def get_server_status(self, client: httpx.AsyncClient):
+        """
+        ดึงสถานะ Server (Non-secure และ Secure endpoints)
+        """
+        try:
+            url = f"{self.base_url}/api/status"
+            # ไม่ต้อง Sign signature เพราะเป็น Public endpoint
+            response = await client.get(url, timeout=5.0)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return [{"name": "Error", "status": "error", "message": f"HTTP {response.status_code}"}]
+        except Exception as e:
+            print(f"Check Status Error: {e}")
+            return [{"name": "Connection", "status": "error", "message": str(e)}]
+
     # --- 🟢 (1) ขอเวลา Server เป็น Milliseconds (ตาม Doc V3) ---
     async def get_server_timestamp(self, client: httpx.AsyncClient):
         try:

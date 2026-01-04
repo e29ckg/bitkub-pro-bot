@@ -20,6 +20,8 @@ class BotEngine:
         self.tg_token = os.getenv("TELEGRAM_TOKEN")
         self.chat_id = os.getenv("CHAT_ID")
         self.last_status = {}
+        self.server_status_ok = True 
+        self.last_server_msg = "All endpoints ok"
     
     async def send_telegram(self, message):
         if not self.tg_token or not self.chat_id:
@@ -31,6 +33,49 @@ class BotEngine:
                 await client.get(url, params={"chat_id": self.chat_id, "text": message})
         except Exception as e:
             print(f"Telegram Error: {e}")
+
+    # --- 🟢 เพิ่มเมธอดใหม่ใน BotEngine ---
+    async def check_server_health(self, client):
+        status_data = await self.api.get_server_status(client)
+        
+        is_all_ok = True
+        error_messages = []
+
+        # Loop เช็คทุก Endpoint (Non-secure และ Secure)
+        if isinstance(status_data, list):
+            for item in status_data:
+                name = item.get("name", "Unknown")
+                status = item.get("status", "error")
+                message = item.get("message", "")
+                
+                if status != "ok":
+                    is_all_ok = False
+                    error_messages.append(f"{name}: {status} ({message})")
+        else:
+            # กรณี format ผิดหรือไม่ใช่ list
+            is_all_ok = False
+            error_messages.append("Invalid Status Response")
+
+        # สรุปข้อความปัจจุบัน
+        current_msg = "All Systems Operational" if is_all_ok else " | ".join(error_messages)
+
+        # 🟢 ตรวจสอบการเปลี่ยนแปลงสถานะ (Change Detection)
+        if is_all_ok != self.server_status_ok:
+            
+            if is_all_ok:
+                # จากเสีย -> ดี
+                log_msg = f"✅ Server is back online! ({current_msg})"
+                await self.log_and_broadcast(log_msg)
+            else:
+                # จากดี -> เสีย
+                log_msg = f"⛔ Server Maintenance/Error Detected! Bot Paused.\nDetails: {current_msg}"
+                await self.log_and_broadcast(log_msg) # แจ้ง Telegram ทันที
+
+            # อัปเดตสถานะล่าสุดเก็บไว้
+            self.server_status_ok = is_all_ok
+            self.last_server_msg = current_msg
+
+        return is_all_ok
 
     async def log_and_broadcast(self, message):
         print(message)
@@ -301,20 +346,28 @@ class BotEngine:
 
     async def run_loop(self):
         self.running = True
-        await self.log_and_broadcast("🚀 Bot Started (Async Engine v2 Fixed)")
+        await self.log_and_broadcast("🚀 Bot Started (Async Engine v2)")
         
         async with httpx.AsyncClient() as client:
             while self.running:
                 try:
                     start_time = asyncio.get_running_loop().time()
                     
+                    # 🟢 1. ตรวจสอบสถานะ Server ก่อนทำอย่างอื่น
+                    is_server_ready = await self.check_server_health(client)
+                    
+                    if not is_server_ready:
+                        print(f"💤 Server not ready. Waiting... ({self.last_server_msg})")
+                        await asyncio.sleep(30) # รอ 30 วินาทีค่อยเช็คใหม่
+                        continue # ข้าม Loop นี้ไปเลย (ไม่เทรด)
+
+                    # --- ถ้า Server OK ถึงจะทำงานต่อ ---
                     symbols = await db.get_symbols()
                     
                     tasks = [self.process_symbol(client, sym) for sym in symbols]
                     await asyncio.gather(*tasks)
                     
                     elapsed = asyncio.get_running_loop().time() - start_time
-                    await self.log_and_broadcast(f"⏱️ Loop finished in {elapsed:.2f}s. Waiting...")
                     
                     await asyncio.sleep(10)
 
