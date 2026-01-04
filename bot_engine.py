@@ -306,10 +306,10 @@ class BotEngine:
         await self.ws_manager.broadcast(log_message)
 
         if signal != previous_signal:
+            # 🟢 [FIXED] เรียกใช้ method ของ class ตัวเองให้ถูกต้อง cancle order
+            await self.clear_pending_orders(self.api, client, sym)
             
             if signal in ["BUY", "SELL"]:
-                # 🟢 [FIXED] เรียกใช้ method ของ class ตัวเองให้ถูกต้อง cancle order
-                await self.clear_pending_orders(self.api, client, sym)
                 msg = f"🚨 {sym} Status Changed!\nFrom: {previous_signal}\nTo: {signal}\nReason: {reason}\nPrice: {last_close}"
                 await self.send_telegram(msg)
 
