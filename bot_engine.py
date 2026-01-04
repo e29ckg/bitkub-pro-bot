@@ -196,7 +196,8 @@ class BotEngine:
         orders_res = await bitkub_client.get_open_orders(http_client, symbol)
         
         if orders_res.get('error') != 0:
-            await self.log_and_broadcast(f"❌ Failed to get open orders: {orders_res}")
+            # ใช้ log_and_broadcast เพื่อให้เห็นทั้งใน Console และ Telegram (ถ้าเปิด)
+            await self.log_and_broadcast(f"❌ Failed to get open orders {symbol}: {orders_res}")
             return
 
         open_orders = orders_res.get('result', [])
@@ -222,7 +223,9 @@ class BotEngine:
         for order in open_orders:
             o_id = order.get('id')
             o_side = order.get('side').lower()
-            o_amt = float(order.get('amt', 0)) 
+            
+            # 🔴 [แก้ไข] Open Orders API ใช้ key "amount" ไม่ใช่ "amt"
+            o_amt = float(order.get('amount', 0)) 
             o_rate = float(order.get('rate', 0))
             
             # ยิง API ยกเลิก
@@ -232,17 +235,21 @@ class BotEngine:
                 print(f"   ✅ Cancelled {o_id} ({o_side}) success.")
                 
                 # --- 4. Logic คืนค่า (Revert DB) ---
+                # สำหรับ Limit Order: Amount คือจำนวนเหรียญ, Rate คือราคาต่อหน่วย
+                # ดังนั้น มูลค่ารวม (THB) = Amount * Rate
                 total_value = o_amt * o_rate
                 log_reason = ""
 
                 if o_side == 'buy':
-                    # ยกเลิกซื้อ: เอา Cost ที่บวกไว้ออก, เอา Coin ที่บวกไว้ออก
+                    # ตอนซื้อ (Limit): เราบวก Cost (บาท) และ Coin (เหรียญ) ล่วงหน้า
+                    # ยกเลิก: ต้องลบ Cost ออก และลบ Coin ออก
                     current_cost = max(0, current_cost - total_value)
                     current_coin = max(0, current_coin - o_amt)
                     log_reason = f"Cancelled BUY: Revert -{total_value:.2f} THB, -{o_amt} Coin"
                     
                 elif o_side == 'sell':
-                    # ยกเลิกขาย: เอา Cost ที่ลบไปกลับมา, เอา Coin ที่ลบไปกลับมา
+                    # ตอนขาย: เราลบ Coin ออก และลบ Cost (Realize Profit/Loss)
+                    # ยกเลิก: ต้องคืน Coin กลับมา และคืน Cost กลับมา (เสมือนว่ายังไม่ได้ขาย)
                     current_cost = current_cost + total_value
                     current_coin = current_coin + o_amt
                     log_reason = f"Cancelled SELL: Return +{o_amt} Coin, Cost restored +{total_value:.2f}"
@@ -253,17 +260,18 @@ class BotEngine:
                 # บันทึกประวัติ
                 dummy_result = {
                     "id": o_id,
-                    "amt": o_amt,
+                    "amt": o_amt, # ใน DB เราใช้ชื่อ field amt ก็ให้คงไว้แบบนี้ถูกแล้ว
                     "rat": o_rate,
                     "ts": int(time.time()),
                     "typ": "limit"
                 }
                 await db.save_order(symbol, dummy_result, log_reason)
-                print(f"      ↪️ DB Updated: {log_reason}")
-                await self.log_and_broadcast(f"🧹 {symbol}: Cancelled order {o_id} and reverted DB.")
+                
+                # print(f"      ↪️ DB Updated: {log_reason}")
+                await self.log_and_broadcast(f"🧹 {symbol}: Cancelled {o_side} {o_id} & Reverted DB.")
 
             else:
-                print(f"   ❌ Cancel failed {o_id}: {cancel_res}")
+                print(f"   ❌ Cancel failed {symbol} {o_id}: {cancel_res}")
                 
         print("🧹 Clear pending orders done.")
 
