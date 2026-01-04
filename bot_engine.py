@@ -267,7 +267,6 @@ class BotEngine:
 
                 # อัปเดต DB
                 await db.update_cost_coin(s_id, current_cost, current_coin)
-                await self.log_and_broadcast(f"🧹 {symbol}: Reverted DB Cost/Coin after cancelling {o_side} {o_id}.")
                 
                 # บันทึกประวัติ
                 dummy_result = {
@@ -279,8 +278,8 @@ class BotEngine:
                 }
                 await db.save_order(symbol, dummy_result, log_reason)
                 
-                # print(f"      ↪️ DB Updated: {log_reason}")
-                await self.log_and_broadcast(f"🧹 {symbol}: Cancelled {o_side} {o_id} & Reverted DB.")
+                # print(f" ↪️ DB Updated: {log_reason}")
+                await self.log_and_broadcast(f"🧹 {symbol}: Cancelled {o_side.upper()} {o_id} & Reverted DB.")
 
             else:
                 print(f"   ❌ Cancel failed {symbol} {o_id}: {cancel_res}")
@@ -396,8 +395,8 @@ class BotEngine:
 
                     # --- ถ้า Server OK ถึงจะทำงานต่อ ---
                     
-                    # (แนะนำ) ให้ get_symbols กรองเฉพาะ status='true' มาเลยจะประหยัด loop
-                    symbols = await db.get_symbols() 
+                    # (แนะนำ) ให้ get_active_symbols กรองเฉพาะ status='true' มาเลยจะประหยัด loop
+                    symbols = await db.get_active_symbols() 
                     
                     tasks = [self.process_symbol(client, sym) for sym in symbols]
                     await asyncio.gather(*tasks)

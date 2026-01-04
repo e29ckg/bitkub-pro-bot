@@ -35,10 +35,23 @@ def init_db():
 
 # --- Async Functions ---
 
-async def get_symbols():
+# database.py
+
+# 🟢 1. สำหรับ Dashboard (ดึงทั้งหมด)
+async def get_all_symbols():
     async with aiosqlite.connect(DB_NAME) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM symbols WHERE 1") as cursor:
+        # ดึงทั้งหมด ไม่สน status
+        async with db.execute("SELECT * FROM symbols ORDER BY id ASC") as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+# 🟢 2. สำหรับ Bot Engine (ดึงเฉพาะที่เปิด)
+async def get_active_symbols():
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        # ดึงเฉพาะ status = 'true'
+        async with db.execute("SELECT * FROM symbols WHERE status = 'true'") as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
 

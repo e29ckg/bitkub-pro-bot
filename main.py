@@ -126,8 +126,8 @@ async def stop_bot():
 # --- 🟢 ส่วนที่แก้ไขให้เป็น Async Database ---
 
 @app.get("/symbols")
-async def get_symbols(): # ต้องเป็น async
-    return await db.get_symbols() # ต้องมี await
+async def read_symbols(): # ต้องเป็น async
+    return await db.get_all_symbols() # ต้องมี await
 
 @app.post("/add_symbol")
 async def add_symbol(request: Request):
