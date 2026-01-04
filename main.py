@@ -231,6 +231,12 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
 
+@app.on_event("startup")
+async def startup_event():
+    print("🎬 Application Startup: Launching Bot Loop...")
+    # สร้าง Background Task เพื่อรันบอทโดยไม่ขัดขวาง Server
+    asyncio.create_task(bot.run_loop())
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
