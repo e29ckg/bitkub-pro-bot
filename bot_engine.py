@@ -390,7 +390,8 @@ class BotEngine:
                     is_server_ready = await self.check_server_health(client)
                     
                     if not is_server_ready:
-                        print(f"💤 Server not ready. Waiting... ({self.last_server_msg})")
+                        # print(f"💤 Server not ready. Waiting... ({self.last_server_msg})")
+                        self.log_and_broadcast(f"💤 Server not ready. Waiting... ({self.last_server_msg})")
                         await asyncio.sleep(30) # รอ 30 วินาทีค่อยเช็คใหม่
                         continue # ข้าม Loop นี้ไปเลย (ไม่เทรด)
 
