@@ -71,8 +71,11 @@ Create a `.env` file in the root directory:
 API_KEY=your_bitkub_api_key
 API_SECRET=your_bitkub_api_secret
 BASE_URL=[https://api.bitkub.com](https://api.bitkub.com)
-BOT_PASSWORD=your_secure_password
 
+TELEGRAM_TOKEN=1234556:AAGy4Pgh_5WHY0abiCdI-DOchivffpkmVnY
+CHAT_ID=xxxxxx
+
+BOT_PASSWORD=your_secure_password
 ```
 
 
@@ -81,9 +84,31 @@ BOT_PASSWORD=your_secure_password
 python main.py
 
 ```
-
-
 Access the dashboard at: `http://localhost:8000`
+
+# การรันแบบ Service (Auto-start บน Linux/Ubuntu)
+หากต้องการให้บอทรันตลอดเวลาและเริ่มเองเมื่อเปิดเครื่อง:
+
+```Bash
+
+# สร้าง Service file
+sudo nano /etc/systemd/system/bitkub.service
+
+# (ใส่ Config ตามที่ตั้งค่าไว้ในเครื่อง)
+
+# สั่งเริ่ม Service
+sudo systemctl enable bitkub
+sudo systemctl start bitkub
+
+```
+
+# การอัพเดต
+```
+cd ~/bitkub-pro-bot
+git pull
+sudo systemctl restart bitkub
+
+```
 
 ## 🌐 Deployment (Ubuntu Server + Nginx)
 
@@ -156,6 +181,36 @@ This software is for **educational purposes only**. Cryptocurrency trading invol
 
 Developed by e29ckg
 
+
+
+## 🔄 การตั้งค่ารีสตาร์ท Server อัตโนมัติ (Server Auto-Reboot)
+
+เพื่อให้ Server ทำงานได้ราบรื่นและเคลียร์ Memory (RAM) เป็นประจำ แนะนำให้ตั้งเวลา Reboot เครื่องอัตโนมัติ (เช่น ทุกวันตอนตี 4)
+
+1. **เปิดใช้งาน Auto-start ให้บอท** (สำคัญมาก! เพื่อให้บอททำงานเองหลังเปิดเครื่อง)
+```bash
+   sudo systemctl enable bitkub
 ```
 
+2. **ตั้งเวลา Reboot ด้วย Crontab**
+เปิดแก้ไข Crontab ของ Root:
+```bash
+sudo crontab -e
 ```
+
+3. **เพิ่มคำสั่งลงบรรทัดล่างสุด**
+เลือกแบบใดแบบหนึ่ง:
+* **แบบ A: รีสตาร์ททุกวัน (เวลา 04:00 น.)**
+```bash
+0 4 * * * /sbin/shutdown -r now
+```
+
+* **แบบ B: รีสตาร์ททุกวันอาทิตย์ (เวลา 04:00 น.)**
+```bash
+0 4 * * 0 /sbin/shutdown -r now
+```
+
+4. **บันทึกไฟล์**
+* กด `Ctrl + X`
+* กด `Y`
+* กด `Enter`
