@@ -408,7 +408,7 @@ class BotEngine:
                     print(f"✅ Processed {len(symbols)} symbols in {elapsed:.2f} seconds. Sleeping...")
                     
                     # ❌ ลบบรรทัดนี้ออก หรือใส่ await ถ้าจำเป็นจริงๆ
-                    # await self.log_and_broadcast(f"✅ Processed ...") 
+                    await self.log_and_broadcast(f"✅ Processed {len(symbols)} symbols in {elapsed:.2f} seconds.")
                                                              
                     await asyncio.sleep(10)
 
