@@ -72,7 +72,7 @@ API_KEY=your_bitkub_api_key
 API_SECRET=your_bitkub_api_secret
 BASE_URL=[https://api.bitkub.com](https://api.bitkub.com)
 
-TELEGRAM_TOKEN=1234556:AAGy4Pgh_5WHY0abiCdI-DOchivffpkmVnY
+TELEGRAM_TOKEN=1234556:abcdef
 CHAT_ID=xxxxxx
 
 BOT_PASSWORD=your_secure_password
