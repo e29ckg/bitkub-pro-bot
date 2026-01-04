@@ -16,7 +16,11 @@ BOT_PASSWORD = os.getenv("BOT_PASSWORD", "1234")
 # เริ่มต้น DB (ถ้า init_db เป็น sync ให้เรียกตรงนี้ได้เลย)
 db.init_db() 
 
-app = FastAPI()
+app = FastAPI(
+    docs_url=None,    # ❌ ปิด Swagger UI (/docs)
+    redoc_url=None,   # ❌ ปิด ReDoc (/redoc)
+    openapi_url=None  # ❌ (แนะนำ) ปิด JSON Schema (/openapi.json) เพื่อไม่ให้สแกนได้
+)
 
 # --- Static Files ---
 app.mount("/static", StaticFiles(directory="static"), name="static")
