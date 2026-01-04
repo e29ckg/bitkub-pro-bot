@@ -27,10 +27,8 @@ class BotEngine:
         if not self.tg_token or not self.chat_id:
             return 
             
-        # URL ยังคงมี Token เป็นส่วนประกอบ (เป็นข้อบังคับของ Telegram)
         url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
         
-        # Payload ข้อมูลที่จะส่ง
         payload = {
             "chat_id": self.chat_id,
             "text": message,
@@ -307,10 +305,10 @@ class BotEngine:
         await self.ws_manager.broadcast(log_message)
 
         if signal != previous_signal:
-            # 🟢 [FIXED] เรียกใช้ method ของ class ตัวเองให้ถูกต้อง
-            await self.clear_pending_orders(self.api, client, sym)
             
             if signal in ["BUY", "SELL"]:
+                # 🟢 [FIXED] เรียกใช้ method ของ class ตัวเองให้ถูกต้อง cancle order
+                await self.clear_pending_orders(self.api, client, sym)
                 msg = f"🚨 {sym} Status Changed!\nFrom: {previous_signal}\nTo: {signal}\nReason: {reason}\nPrice: {last_close}"
                 await self.send_telegram(msg)
 
