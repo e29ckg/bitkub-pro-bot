@@ -405,10 +405,10 @@ class BotEngine:
                     elapsed = asyncio.get_running_loop().time() - start_time
                     
                     # 🟢 แก้ไข: ใช้ print เฉยๆ เพื่อไม่ให้รกหน้าเว็บ/Telegram
-                    print(f"✅ Processed {len(symbols)} symbols in {elapsed:.2f} seconds. Sleeping...")
+                    # print(f"✅ Processed {len(symbols)} symbols in {elapsed:.2f} seconds. Sleeping...")
                     
                     # ❌ ลบบรรทัดนี้ออก หรือใส่ await ถ้าจำเป็นจริงๆ
-                    await self.log_and_broadcast(f"✅ Processed {len(symbols)} symbols in {elapsed:.2f} seconds.")
+                    await self.log_and_broadcast(f"✅ Processed {len(symbols)} symbols in {elapsed:.2f} seconds. Sleeping...")
                                                              
                     await asyncio.sleep(10)
 
