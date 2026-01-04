@@ -401,7 +401,10 @@ class BotEngine:
                     await asyncio.gather(*tasks)
                     
                     elapsed = asyncio.get_running_loop().time() - start_time
-                    
+                    if elapsed < 10:
+                        print(f"✅ Processed {len(symbols)} symbols in {elapsed:.2f} seconds. Sleeping...")
+                        self.log_and_broadcast(f"✅ Processed {len(symbols)} symbols in {elapsed:.2f} seconds.")
+                                       
                     await asyncio.sleep(10)
 
                 except Exception as e:
