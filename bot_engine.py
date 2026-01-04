@@ -238,6 +238,7 @@ class BotEngine:
             # 🔴 [แก้ไข] Open Orders API ใช้ key "amount" ไม่ใช่ "amt"
             o_amt = float(order.get('amount', 0)) 
             o_rate = float(order.get('rate', 0))
+            o_rec = float(order.get('receive', 0))  
             
             # ยิง API ยกเลิก
             cancel_res = await bitkub_client.cancel_order(http_client, symbol, o_id, o_side)
@@ -254,16 +255,16 @@ class BotEngine:
                 if o_side == 'buy':
                     # ตอนซื้อ (Limit): เราบวก Cost (บาท) และ Coin (เหรียญ) ล่วงหน้า
                     # ยกเลิก: ต้องลบ Cost ออก และลบ Coin ออก
-                    current_cost = max(0, current_cost - total_value)
-                    current_coin = max(0, current_coin - o_amt)
-                    log_reason = f"Cancelled BUY: Revert -{total_value:.2f} THB, -{o_amt} Coin"
+                    current_cost = max(0, current_cost - o_amt)
+                    current_coin = max(0, current_coin - o_rec)
+                    log_reason = f"Cancelled BUY: Revert -{o_amt:.2f} THB, -{o_rec} Coin"
                     
                 elif o_side == 'sell':
                     # ตอนขาย: เราลบ Coin ออก และลบ Cost (Realize Profit/Loss)
                     # ยกเลิก: ต้องคืน Coin กลับมา และคืน Cost กลับมา (เสมือนว่ายังไม่ได้ขาย)
-                    current_cost = current_cost + total_value
+                    current_cost = current_cost + o_rec
                     current_coin = current_coin + o_amt
-                    log_reason = f"Cancelled SELL: Return +{o_amt} Coin, Cost restored +{total_value:.2f}"
+                    log_reason = f"Cancelled SELL: Return +{o_amt} Coin, Cost restored +{o_rec:.2f}"
 
                 # อัปเดต DB
                 await db.update_cost_coin(s_id, current_cost, current_coin)
