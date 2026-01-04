@@ -300,7 +300,7 @@ class BotEngine:
         signal, reason, last_close = self.analyze_market(df, sym)
         
         # --- เช็คสถานะเปลี่ยน ---
-        previous_signal = self.last_status.get(sym, "N/A")
+        previous_signal = self.last_status.get(sym, "HOLD")
         
         log_message = f"🔍 {sym}: {last_close} | {signal} | {reason}"
         await self.ws_manager.broadcast(log_message)
