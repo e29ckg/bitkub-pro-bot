@@ -42,7 +42,7 @@ async def get_all_symbols():
     async with aiosqlite.connect(DB_NAME) as db:
         db.row_factory = aiosqlite.Row
         # ดึงทั้งหมด ไม่สน status
-        async with db.execute("SELECT * FROM symbols ORDER BY id ASC") as cursor:
+        async with db.execute("SELECT * FROM symbols ORDER BY symbol ASC") as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
 
