@@ -27,10 +27,22 @@ class BotEngine:
         if not self.tg_token or not self.chat_id:
             return 
             
+        # URL ยังคงมี Token เป็นส่วนประกอบ (เป็นข้อบังคับของ Telegram)
         url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
+        
+        # Payload ข้อมูลที่จะส่ง
+        payload = {
+            "chat_id": self.chat_id,
+            "text": message,
+            "parse_mode": "HTML" # เผื่ออยากจัดรูปแบบตัวหนา/เอียง
+        }
+
         try:
             async with httpx.AsyncClient() as client:
-                await client.get(url, params={"chat_id": self.chat_id, "text": message})
+                # 🟢 เปลี่ยนจาก .get เป็น .post
+                # และเปลี่ยนจาก params=... เป็น data=... (หรือ json=...)
+                await client.post(url, data=payload, timeout=10.0)
+                
         except Exception as e:
             print(f"Telegram Error: {e}")
 
