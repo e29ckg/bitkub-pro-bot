@@ -38,7 +38,7 @@ def init_db():
 async def get_symbols():
     async with aiosqlite.connect(DB_NAME) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM symbols WHERE status='true'") as cursor:
+        async with db.execute("SELECT * FROM symbols WHERE 1") as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
 

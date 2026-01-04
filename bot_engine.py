@@ -22,6 +22,7 @@ class BotEngine:
         self.last_status = {}
         self.server_status_ok = True 
         self.last_server_msg = "All endpoints ok"
+        self.processing_coins = set()
     
     async def send_telegram(self, message):
         if not self.tg_token or not self.chat_id:
@@ -266,6 +267,7 @@ class BotEngine:
 
                 # อัปเดต DB
                 await db.update_cost_coin(s_id, current_cost, current_coin)
+                await self.log_and_broadcast(f"🧹 {symbol}: Reverted DB Cost/Coin after cancelling {o_side} {o_id}.")
                 
                 # บันทึกประวัติ
                 dummy_result = {
@@ -318,10 +320,23 @@ class BotEngine:
         
         # === กรณีสัญญาณสั่งซื้อ (BUY) ===
         if signal == "BUY":
+            # เช็คว่ากำลัง process เหรียญนี้อยู่ไหม?
+            if sym in self.processing_coins:
+                print(f"⏳ {sym} is already being processed. Skip.")
+                return # ข้ามไปเลย
+            
             # 3.1 ยังไม่มีของ -> ซื้อไม้แรก
             if symbol_data['coin'] == 0:
                 if symbol_data['cost'] + symbol_data['cost_st'] <= symbol_data['money_limit']:
-                     await self.execute_trade(client, symbol_data, "BUY", last_close, reason)
+                    # 🟢 ล็อกเหรียญก่อนสั่งซื้อ
+                    self.processing_coins.add(sym)
+                    try:
+                        await self.execute_trade(client, symbol_data, "BUY", last_close, reason)
+                    finally:
+                        # 🟢 ปลดล็อกเสมอ ไม่ว่าจะ error หรือสำเร็จ
+                        # แต่! ถ้าซื้อสำเร็จ ใน DB จะมี Coin แล้ว Loop หน้าจะไม่เข้าเงื่อนไขนี้เอง
+                        # ดังนั้นเราปลดล็อกได้เลยเพื่อให้ Loop หน้าเช็คจาก DB เอา
+                        self.processing_coins.remove(sym)
                 else:
                      if previous_signal != "BUY":
                         msg = f"⚠️ {sym}: Signal BUY but Money Limit Exceeded ({symbol_data['cost']}/{symbol_data['money_limit']})"
