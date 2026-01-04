@@ -395,17 +395,24 @@ class BotEngine:
                         continue # ข้าม Loop นี้ไปเลย (ไม่เทรด)
 
                     # --- ถ้า Server OK ถึงจะทำงานต่อ ---
-                    symbols = await db.get_symbols()
+                    
+                    # (แนะนำ) ให้ get_symbols กรองเฉพาะ status='true' มาเลยจะประหยัด loop
+                    symbols = await db.get_symbols() 
                     
                     tasks = [self.process_symbol(client, sym) for sym in symbols]
                     await asyncio.gather(*tasks)
                     
                     elapsed = asyncio.get_running_loop().time() - start_time
+                    
+                    # 🟢 แก้ไข: ใช้ print เฉยๆ เพื่อไม่ให้รกหน้าเว็บ/Telegram
                     print(f"✅ Processed {len(symbols)} symbols in {elapsed:.2f} seconds. Sleeping...")
-                    self.log_and_broadcast(f"✅ Processed {len(symbols)} symbols in {elapsed:.2f} seconds.")
-                                       
+                    
+                    # ❌ ลบบรรทัดนี้ออก หรือใส่ await ถ้าจำเป็นจริงๆ
+                    # await self.log_and_broadcast(f"✅ Processed ...") 
+                                                             
                     await asyncio.sleep(10)
 
                 except Exception as e:
+                    # ตรงนี้ต้องมี await
                     await self.log_and_broadcast(f"⚠️ Bot Loop Error: {e}")
                     await asyncio.sleep(5)
