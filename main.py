@@ -202,7 +202,7 @@ async def add_symbol(request: Request):
     cost_st = float(data.get("cost_st", 100))
     strategy = int(data.get("strategy", 1))
 
-    success = await db.add_symbol(symbol, cost_st, money_limit, strategy)
+    success = await db.add_symbol(symbol, money_limit, cost_st,  strategy)
     
     if success:
         return {"status": "success", "message": f"Added {symbol}"}
