@@ -69,11 +69,18 @@ class BitkubClient:
             hashlib.sha256
         ).hexdigest()
 
-    async def get_candles(self, client: httpx.AsyncClient, symbol, resolution=15):
+    # 🟢 [แก้ไข] ไม่ต้องรับค่า resolution แล้ว ให้ดึงจาก config โดยตรง
+    async def get_candles(self, client: httpx.AsyncClient, symbol):
         try:
             query_symbol = utils.normalize_symbol(symbol, to_api=True)
             current_time = int(time.time())
-            from_time = current_time - (1440 * 60)
+            
+            # 🟢 [แก้ไข] ดึงค่า TIMEFRAME จาก config.py
+            resolution = config.TIMEFRAME 
+            
+            # คำนวณเวลาย้อนหลัง: สมมติเอากราฟ 100 แท่งย้อนหลัง
+            # (resolution เป็นนาที * 60 วินาที * 100 แท่ง)
+            from_time = current_time - (resolution * 60 * 100) 
             
             url = f"{self.base_url}/tradingview/history?symbol={query_symbol}&resolution={resolution}&from={from_time}&to={current_time}"
             response = await client.get(url, timeout=10.0)
@@ -90,7 +97,7 @@ class BitkubClient:
             return None
         except Exception as e:
             print(f"Error fetching candles for {symbol}: {e}")
-            return None        
+            return None      
         
     async def get_wallet(self, client: httpx.AsyncClient):
         endpoint = "/api/v3/market/wallet"
