@@ -43,6 +43,7 @@
             formData.append('password', password);
 
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
+            errorMsg.classList.add('hidden'); // ซ่อน Error ไว้ก่อนเผื่อกดซ้ำ
             
             try {
                 const res = await fetch('/login', {
@@ -51,16 +52,18 @@
                 });
 
                 if (res.ok) {
-                    // ถ้ารหัสถูก ให้รีโหลดหน้าจอ (Main.py จะพาไป Dashboard เอง)
-                    window.location.reload();
+                    // 🟢 [แก้ไข] ถ้ารหัสถูก ให้ JS พาไปหน้า Dashboard เลย
+                    window.location.href = '/dashboard';
                 } else {
+                    // 🟢 ถ้ารหัสผิด แสดงข้อความสีแดงที่คุณเตรียมไว้
                     errorMsg.innerText = "Access Denied: Wrong Password";
                     errorMsg.classList.remove('hidden');
                     btn.innerHTML = '<i class="fa-solid fa-unlock-keyhole mr-2"></i> Access Dashboard';
                 }
             } catch (err) {
-                errorMsg.innerText = "System Error";
+                errorMsg.innerText = "System Error: Cannot connect to server";
                 errorMsg.classList.remove('hidden');
+                btn.innerHTML = '<i class="fa-solid fa-unlock-keyhole mr-2"></i> Access Dashboard';
             }
         }
     </script>

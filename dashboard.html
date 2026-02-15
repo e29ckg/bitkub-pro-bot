@@ -21,7 +21,6 @@
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #1e293b; }
         ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
-        
     </style>
 </head>
 <body class="h-screen flex flex-col overflow-y-auto md:overflow-hidden">
@@ -30,25 +29,24 @@
         <div class="flex items-center gap-3 w-full md:w-auto justify-center md:justify-start">
             <i class="fa-solid fa-robot text-green-400 text-2xl"></i>
             <h1 class="text-xl font-bold text-white tracking-wide">Bitkub <span class="text-green-400">Pro Bot</span></h1>
-        </div>
+            <span id="connection-status" class="ml-2 text-xs text-slate-500"></span> </div>
           
         <div class="flex items-center gap-4 w-full md:w-auto justify-center md:justify-end">            
             <div id="status-badge" class="px-3 py-1 rounded-full text-sm font-semibold bg-gray-600 text-gray-200">
-                    <span class="flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full bg-gray-400" id="status-dot"></span>
-                        <span id="status-text">Checking...</span>
-                    </span>
-                </div>
-
-                <button id="toggle-btn" onclick="toggleBot()" class="px-4 py-2 rounded-md font-bold text-white transition-all duration-200 bg-gray-500 cursor-wait" disabled>
-                    Loading...
-                </button>
-                
-                <button onclick="logout()" class="text-gray-400 hover:text-white ml-2">
-                    <i class="fas fa-sign-out-alt"></i> </button>
+                <span class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-gray-400" id="status-dot"></span>
+                    <span id="status-text">Checking...</span>
+                </span>
             </div>
-        </div>
+
+            <button id="toggle-btn" onclick="toggleBot()" class="px-4 py-2 rounded-md font-bold text-white transition-all duration-200 bg-gray-500 cursor-wait" disabled>
+                Loading...
+            </button>
             
+            <button onclick="logout()" class="text-gray-400 hover:text-white ml-2">
+                <i class="fas fa-sign-out-alt"></i> 
+            </button>
+        </div>
     </header>
 
     <main class="flex-1 flex flex-col md:flex-row gap-4 p-2 md:p-4 overflow-visible md:overflow-hidden">
@@ -96,8 +94,7 @@
                                 <th class="p-2">Reason</th>
                             </tr>
                         </thead>
-                        <tbody id="historyTable" class="divide-y divide-slate-700">
-                            </tbody>
+                        <tbody id="historyTable" class="divide-y divide-slate-700"></tbody>
                     </table>
                 </div>
             </div>
@@ -139,6 +136,15 @@
                             <input id="addLimitInput" type="number" value="1000" class="shadow appearance-none border border-slate-600 rounded w-full py-2 px-3 text-white bg-slate-700 focus:border-blue-500">
                         </div>
                     </div>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="block text-gray-300 text-sm font-bold mb-2">Trading Strategy</label>
+                    <select id="addStrategy" class="shadow appearance-none border border-slate-600 rounded w-full py-2 px-3 text-white bg-slate-700 leading-tight focus:border-blue-500">
+                        <option value="1">Strategy 1: Trend & Reversal (ปลอดภัย)</option>
+                        <option value="2">Strategy 2: RSI Scalping (เล่นสั้น/เข้าออกไว)</option>
+                        <option value="3">Strategy 3: MACD Cross (ตามเทรนด์ยาว)</option>
+                    </select>
                 </div>
 
                 <div class="flex justify-end pt-2 border-t border-slate-700 gap-2">
@@ -185,6 +191,15 @@
                             <option value="false">Inactive (OFF)</option>
                         </select>
                     </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-gray-300 text-sm font-bold mb-2">Trading Strategy</label>
+                        <select id="editStrategy" class="shadow appearance-none border border-slate-600 rounded w-full py-2 px-3 text-white bg-slate-700 leading-tight focus:border-yellow-500">
+                            <option value="1">Strategy 1: Trend & Reversal (ปลอดภัย)</option>
+                            <option value="2">Strategy 2: RSI Scalping (เล่นสั้น/เข้าออกไว)</option>
+                            <option value="3">Strategy 3: MACD Cross (ตามเทรนด์ยาว)</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="flex justify-end pt-2 border-t border-slate-700 gap-2">
@@ -205,7 +220,12 @@
         function connectWebSocket() {
             const ws = new WebSocket(WS_URL);
             const statusEl = document.getElementById('connection-status');
-            ws.onopen = () => { statusEl.innerHTML = '<i class="fa-solid fa-circle text-[8px] md:text-[10px]"></i> Online'; statusEl.className = "flex items-center gap-2 text-green-500 text-xs md:text-sm font-semibold whitespace-nowrap"; };
+            ws.onopen = () => { 
+                if(statusEl) {
+                    statusEl.innerHTML = '<i class="fa-solid fa-circle text-[8px] md:text-[10px]"></i> Online'; 
+                    statusEl.className = "ml-2 flex items-center gap-2 text-green-500 text-xs md:text-sm font-semibold whitespace-nowrap"; 
+                }
+            };
             ws.onmessage = (event) => { appendLog(event.data); };
             ws.onclose = () => { setTimeout(connectWebSocket, 3000); };
         }
@@ -234,10 +254,14 @@
                 symbols.forEach(sym => {
                     const statusClass = sym.status === 'true' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300';
                     const statusText = sym.status === 'true' ? 'ON' : 'OFF';
+                    const strategyNum = sym.strategy || 1; // 🟢 ดึง strategy มาแสดง
                     
                     const row = `
                         <tr class="hover:bg-slate-700 transition group border-b border-slate-700 last:border-0">
-                            <td class="p-2 font-bold text-white">${sym.symbol}</td>
+                            <td class="p-2">
+                                <div class="font-bold text-white">${sym.symbol}</div>
+                                <div class="text-slate-500 text-[10px]">Strategy: ${strategyNum}</div>
+                            </td>
                             <td class="p-2 text-right">
                                 <div class="text-slate-300 text-xs">${parseFloat(sym.cost).toFixed(2)} ฿</div>
                                 <div class="text-slate-500 text-[10px]">${parseFloat(sym.coin).toFixed(4)}</div>
@@ -265,6 +289,7 @@
             document.getElementById('addSymInput').value = '';
             document.getElementById('addCostStInput').value = '100';
             document.getElementById('addLimitInput').value = '1000';
+            document.getElementById('addStrategy').value = '1'; // 🟢 ค่า Default Strategy
             
             const modal = document.getElementById('addModal');
             modal.classList.remove('opacity-0', 'pointer-events-none');
@@ -283,18 +308,26 @@
             const symbol = document.getElementById('addSymInput').value.toUpperCase();
             const costSt = document.getElementById('addCostStInput').value;
             const moneyLimit = document.getElementById('addLimitInput').value;
+            const strategy = document.getElementById('addStrategy').value; // 🟢 ดึงค่า Strategy
 
             if(!symbol) { alert("Please enter a symbol"); return; }
 
             try {
+                // 🟢 แนบ strategy เข้าไปใน JSON
                 await fetch(`${API_URL}/add_symbol`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ symbol, cost_st: parseFloat(costSt), money_limit: parseFloat(moneyLimit), status: 'true' })
+                    body: JSON.stringify({ 
+                        symbol, 
+                        cost_st: parseFloat(costSt), 
+                        money_limit: parseFloat(moneyLimit), 
+                        status: 'true',
+                        strategy: parseInt(strategy)
+                    })
                 });
                 closeAddModal();
                 fetchSymbols();
-                appendLog(`Action: Added ${symbol}`);
+                appendLog(`Action: Added ${symbol} (Strategy ${strategy})`);
             } catch (e) { alert(e); }
         }
 
@@ -315,6 +348,7 @@
             document.getElementById('editCostSt').value = sym.cost_st;
             document.getElementById('editLimit').value = sym.money_limit;
             document.getElementById('editStatus').value = sym.status;
+            document.getElementById('editStrategy').value = sym.strategy || 1; // 🟢 ดึง strategy เดิมมาแสดง
 
             const modal = document.getElementById('editModal');
             modal.classList.remove('opacity-0', 'pointer-events-none');
@@ -329,10 +363,12 @@
 
         async function saveChanges() {
             const id = document.getElementById('editId').value;
+            // 🟢 แนบ strategy เข้าไปใน JSON
             const data = {
                 status: document.getElementById('editStatus').value,
                 cost_st: parseFloat(document.getElementById('editCostSt').value),
-                money_limit: parseFloat(document.getElementById('editLimit').value)
+                money_limit: parseFloat(document.getElementById('editLimit').value),
+                strategy: parseInt(document.getElementById('editStrategy').value)
             };
 
             try {
@@ -353,8 +389,6 @@
         }
 
         // Start/Stop/Logout Functions
-        async function startBot() { await fetch(`${API_URL}/start`, { method: 'POST' }); }
-        async function stopBot() { await fetch(`${API_URL}/stop`, { method: 'POST' }); }
         function clearLogs() { document.getElementById('logContainer').innerHTML = ''; }
 
         async function logout() {
@@ -399,36 +433,30 @@
             const statusText = document.getElementById('status-text');
             const statusDot = document.getElementById('status-dot');
 
-            // Reset classes
             btn.disabled = false;
-            btn.classList.remove('cursor-wait', 'bg-gray-500', 'btn-running', 'btn-stopped', 'btn-loading');
+            btn.classList.remove('cursor-wait', 'bg-gray-500');
             
             if (running) {
-                // ถ้าบอทกำลังรัน -> ปุ่มต้องเป็น "STOP" (สีแดง)
                 btn.innerText = "⏹ Stop Bot";
-                btn.classList.add('bg-red-600', 'hover:bg-red-700'); // Tailwind classes
-                // หรือใช้ btn.classList.add('btn-running'); // Custom CSS
+                btn.classList.add('bg-red-600', 'hover:bg-red-700'); 
+                btn.classList.remove('bg-green-600', 'hover:bg-green-700');
                 
-                // อัปเดตป้ายสถานะ
                 statusText.innerText = "Running";
-                statusDot.classList.replace('bg-gray-400', 'bg-green-400'); // ไฟเขียว
+                statusDot.classList.replace('bg-gray-400', 'bg-green-400');
                 badge.classList.replace('bg-gray-600', 'bg-green-900');
                 badge.classList.replace('text-gray-200', 'text-green-100');
             } else {
-                // ถ้าบอทหยุด -> ปุ่มต้องเป็น "START" (สีเขียว)
                 btn.innerText = "▶ Start Bot";
-                btn.classList.add('bg-green-600', 'hover:bg-green-700'); // Tailwind classes
-                // หรือใช้ btn.classList.add('btn-stopped'); // Custom CSS
+                btn.classList.add('bg-green-600', 'hover:bg-green-700'); 
+                btn.classList.remove('bg-red-600', 'hover:bg-red-700');
 
-                // อัปเดตป้ายสถานะ
                 statusText.innerText = "Stopped";
-                statusDot.classList.replace('bg-green-400', 'bg-gray-400'); // ไฟเทา
+                statusDot.classList.replace('bg-green-400', 'bg-gray-400'); 
                 badge.classList.replace('bg-green-900', 'bg-gray-600');
                 badge.classList.replace('text-green-100', 'text-gray-200');
             }
         }
 
-        // 2. ฟังก์ชันกดปุ่ม (Toggle Action)
         async function toggleBot() {
             const btn = document.getElementById('toggle-btn');
             
@@ -438,25 +466,18 @@
             try {
                 let url = isBotRunning ? '/stop-bot' : '/start-bot';
                 
-                // 🟢 แก้ตรงนี้: เพิ่ม method: 'POST'
                 const response = await fetch(url, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Content-Type': 'application/json' }
                 });
                 
                 const data = await response.json();
 
-                // ... (ส่วนอัปเดต UI เหมือนเดิม) ...
                 if (isBotRunning) {
                     updateUI(false); 
-                    // alert("Bot Stopped!"); // ปิด alert ก็ได้ถ้าไม่อยากให้เด้ง
                 } else {
                     updateUI(true);
-                    // alert("Bot Started!");
                 }
-
             } catch (error) {
                 console.error('Error:', error);
                 alert("Connection Error!");
@@ -465,19 +486,13 @@
             }
         }
 
-        // 3. ฟังก์ชันเช็คสถานะเริ่มต้นเมื่อโหลดหน้าเว็บ (Get Initial Status)
         async function checkInitialStatus() {
             try {
-                // คุณต้องมี Endpoint สำหรับเช็คสถานะ เช่น /bot-status
                 const response = await fetch('/bot-status'); 
                 const data = await response.json();
-                
-                // สมมติ data.running ส่งมาเป็น true/false
                 updateUI(data.running); 
-
             } catch (error) {
                 console.error("Cannot check status", error);
-                // กรณีเช็คไม่ได้ ให้ Default เป็น Stopped ไปก่อน
                 updateUI(false);
             }
         }

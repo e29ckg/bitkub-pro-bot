@@ -1,31 +1,32 @@
+import os
+import asyncio
+import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response, Form, HTTPException, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import asyncio
+
 import database as db
 import utils 
 from bitkub import BitkubClient 
-import httpx
 from bot_engine import BotEngine
-from fastapi.staticfiles import StaticFiles
-import os
 
+# --- Settings & Config ---
+# ใช้รหัสผ่านจาก .env หรือค่า default
 BOT_PASSWORD = os.getenv("BOT_PASSWORD", "1234")
 
-# เริ่มต้น DB (ถ้า init_db เป็น sync ให้เรียกตรงนี้ได้เลย)
+# เริ่มต้น DB
 db.init_db() 
 
 app = FastAPI(
     docs_url=None,    # ❌ ปิด Swagger UI (/docs)
     redoc_url=None,   # ❌ ปิด ReDoc (/redoc)
-    openapi_url=None  # ❌ (แนะนำ) ปิด JSON Schema (/openapi.json) เพื่อไม่ให้สแกนได้
+    openapi_url=None  # ❌ ปิด JSON Schema (/openapi.json)
 )
 
-# --- Static Files ---
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# --- CORS ---
+# --- Middlewares ---
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,6 +34,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Static Files ---
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # --- WebSocket Manager ---
 class ConnectionManager:
@@ -47,7 +51,6 @@ class ConnectionManager:
         self.active_connections.remove(websocket)
 
     async def broadcast(self, message: str):
-        # วนลูปส่งข้อความ (ต้อง copy list เพื่อป้องกัน error เวลา list เปลี่ยนขนาดขณะวนลูป)
         for connection in self.active_connections[:]:
             try:
                 await connection.send_text(message)
@@ -62,181 +65,212 @@ class UpdateSymbolModel(BaseModel):
     status: str
     money_limit: float
     cost_st: float
+    strategy: int = 1 
 
-# --- Pydantic Model สำหรับ Test Trade ---
 class TestTradeModel(BaseModel):
-    symbol: str   # เช่น BTC
-    amount: float # เงินบาทที่จะซื้อ (BUY) หรือ จำนวนเหรียญที่จะขาย (SELL)
-    rate: float   # ราคาที่ต้องการ (ถ้าใส่ 0 = Market Price แต่ Bitkub แนะนำให้ใส่ราคา)
+    symbol: str 
+    amount: float 
+    rate: float
 
-# --- Routes ---
+# =====================================================================
+# --- 🔒 ระบบ Security / Gatekeeper ---
+# =====================================================================
+async def check_user(request: Request):
+    # 🟢 ดึงค่าจาก Cookie
+    token = request.cookies.get("access_token")
+    if token != "logged_in_success":
+        raise HTTPException(status_code=401, detail="Please login first")
+    return token
+
+# =====================================================================
+# --- 🖥️ Web Pages (HTML Routes) ---
+# =====================================================================
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
+    # 🟢 เช็คการล็อกอินผ่าน Cookie
     token = request.cookies.get("access_token")
     if token == "logged_in_success":
-        try:
-            with open("dashboard.html", "r", encoding="utf-8") as f:
-                return f.read()
-        except FileNotFoundError:
-            return "Dashboard file not found."
-    
+        return RedirectResponse(url="/dashboard", status_code=303)
+    return RedirectResponse(url="/login", status_code=303)
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
     try:
         with open("login.html", "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        return "Login file not found."
-    
+        return "Login file not found. Please create login.html"
+
+# =====================================================================
+# --- 🔑 Auth APIs ---
+# =====================================================================
+
 @app.post("/login")
-async def login(response: Response, password: str = Form(...)):
-    if password == BOT_PASSWORD:
-        content = {"message": "Login Success"}
-        response = JSONResponse(content=content)
+async def login(password: str = Form(...)):
+    if password == BOT_PASSWORD:  
+        # 🟢 [แก้ไข] ส่งแค่ JSON กลับไปบอก JS ว่าสำเร็จ
+        response = JSONResponse(content={"message": "Login Success"})
+        # ฝัง Cookie เหมือนเดิม
         response.set_cookie(key="access_token", value="logged_in_success", httponly=True)
         return response
     else:
+        # 🟢 [แก้ไข] ถ้ารหัสผิด ส่ง HTTP 401 เพื่อให้ JS โชว์ข้อความ Access Denied
         raise HTTPException(status_code=401, detail="Incorrect Password")
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(request: Request):
+    # 🟢 หน้าเว็บต้องล็อกอิน
+    token = request.cookies.get("access_token")
+    if token != "logged_in_success":
+        return RedirectResponse(url="/login", status_code=303)
+        
+    try:
+        with open("dashboard.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "Dashboard file not found. Please create dashboard.html"
+
+# =====================================================================
+# --- 🔑 Auth APIs ---
+# =====================================================================
+
+@app.post("/login")
+async def login(password: str = Form(...)):
+    if password == BOT_PASSWORD:  
+        # ถ้าล็อกอินผ่าน ให้ Redirect ไป Dashboard
+        response = RedirectResponse(url="/dashboard", status_code=303)
+        # ฝัง Cookie ให้จำค่า
+        response.set_cookie(key="access_token", value="logged_in_success", httponly=True)
+        return response
+    else:
+        # ถ้ารหัสผิด เด้งแจ้งเตือนแล้วกลับหน้าล็อกอิน
+        return HTMLResponse("<script>alert('Incorrect Password'); window.location.href='/login';</script>")
     
 @app.post("/logout")
-async def logout(response: Response):
-    content = {"message": "Logout Success"}
-    response = JSONResponse(content=content)
+async def logout():
+    # ฝั่ง JS ใน dashboard.html จะเรียกผ่าน API นี้
+    response = JSONResponse(content={"message": "Logout Success"})
     response.delete_cookie(key="access_token")
     return response
-# ... import ...
 
-# 1. API เช็คสถานะ (สำหรับ JS function checkInitialStatus)
+@app.get("/logout-page") 
+async def logout_page():
+    # สำรองกรณีอยากใช้ลิงก์ธรรมดา <a href="/logout-page">
+    response = RedirectResponse(url="/login", status_code=303)
+    response.delete_cookie(key="access_token")
+    return response
+
+
+# =====================================================================
+# --- 🤖 Bot Control APIs (ต้อง Login ก่อน) ---
+# =====================================================================
+
 @app.get("/bot-status")
 async def get_bot_status():
     return {"running": bot.running}
 
-# 2. API สั่งเริ่ม (สำหรับ JS function toggleBot)
-@app.post("/start-bot")
+@app.post("/start-bot", dependencies=[Depends(check_user)])
 async def start_bot():
     if bot.running:
         return {"message": "Bot is already running"}
-    
-    # รัน Loop ใน Background
     asyncio.create_task(bot.run_loop())
     return {"message": "Bot start command received"}
 
-# 3. API สั่งหยุด (สำหรับ JS function toggleBot)
-@app.post("/stop-bot")
+@app.post("/stop-bot", dependencies=[Depends(check_user)])
 async def stop_bot():
     bot.running = False
-    # หมายเหตุ: Loop ใน BotEngine จะหยุดเองเมื่อจบรอบการทำงานปัจจุบัน (รอไม่เกิน 10 วิ)
     return {"message": "Bot stopping..."}
 
-# --- 🟢 ส่วนที่แก้ไขให้เป็น Async Database ---
 
-@app.get("/symbols")
-async def read_symbols(): # ต้องเป็น async
-    return await db.get_all_symbols() # ต้องมี await
+# =====================================================================
+# --- 📊 Database & Trading APIs (ต้อง Login ก่อน) ---
+# =====================================================================
 
-@app.post("/add_symbol")
+@app.get("/symbols", dependencies=[Depends(check_user)])
+async def read_symbols():
+    return await db.get_all_symbols()
+
+@app.post("/add_symbol", dependencies=[Depends(check_user)])
 async def add_symbol(request: Request):
     data = await request.json()
     
-    # 1. ใช้ Utils แปลงชื่อเหรียญให้เป็น THB_BTC เสมอ
     raw_symbol = data.get("symbol", "")
     symbol = utils.normalize_symbol(raw_symbol, to_api=False)
 
-    # 2. ดึงค่า Config (ต้องดึงจาก data มาก่อน)
     money_limit = float(data.get("money_limit", 1000))
     cost_st = float(data.get("cost_st", 100))
+    strategy = int(data.get("strategy", 1))
 
-    # 3. เรียก DB แบบ Async
-    success = await db.add_symbol(symbol, money_limit, cost_st)
+    success = await db.add_symbol(symbol, cost_st, money_limit, strategy)
     
     if success:
         return {"status": "success", "message": f"Added {symbol}"}
     else:
         return {"status": "error", "message": "Add failed (Duplicate or Error)"}
 
-@app.delete("/delete_symbol/{symbol_id}")
-async def delete_symbol(symbol_id: int): # ต้องเป็น async
+@app.delete("/delete_symbol/{symbol_id}", dependencies=[Depends(check_user)])
+async def delete_symbol(symbol_id: int): 
     try:
-        # เรียก DB แบบ Async (ต้องไปเพิ่มฟังก์ชันนี้ใน database.py ด้วยนะครับ)
         await db.delete_symbol_data(symbol_id) 
         return {"message": f"Deleted ID {symbol_id}"}
     except Exception as e:
         return {"error": str(e)}
 
-@app.put("/update_symbol/{symbol_id}")
-async def update_symbol(symbol_id: int, item: UpdateSymbolModel): # ต้องเป็น async
+@app.put("/update_symbol/{symbol_id}", dependencies=[Depends(check_user)])
+async def update_symbol(symbol_id: int, item: UpdateSymbolModel): 
     try:
         data = {
             "status": item.status,
             "money_limit": item.money_limit,
-            "cost_st": item.cost_st
+            "cost_st": item.cost_st,
+            "strategy": item.strategy 
         }
-        # เรียก DB แบบ Async
         await db.update_symbol_data(symbol_id, data)
         return {"message": f"Updated ID {symbol_id}"}
     except Exception as e:
         return {"error": str(e)}
     
-@app.get("/history")
+@app.get("/history", dependencies=[Depends(check_user)])
 async def history():
     return await db.get_orders()
 
-@app.get("/open-orders")
+@app.get("/open-orders", dependencies=[Depends(check_user)])
 async def read_open_orders(sym: str = "THB_BTC"):
-    """
-    ดึงรายการออเดอร์ที่ค้างอยู่ (Open Orders) ของเหรียญนั้นๆ
-    การใช้งาน: http://localhost:8000/open-orders?sym=THB_BTC
-    """
     async with httpx.AsyncClient() as client:
         bk = BitkubClient()
-        # เรียกใช้ฟังก์ชันจาก Class BitkubClient
         response = await bk.get_open_orders(client, sym)
         return response
 
-@app.post("/test/buy")
+# --- Test Endpoints (สำหรับ Dev/Test) ---
+@app.post("/test/buy", dependencies=[Depends(check_user)])
 async def test_buy(order: TestTradeModel):
     api = BitkubClient()
     async with httpx.AsyncClient() as client:
-        
-        res = await api.place_order(
-            client, 
-            sym=order.symbol, 
-            amt=order.amount, 
-            rat=order.rate, 
-            side='BUY', 
-            type='limit'
-        )
+        res = await api.place_order(client, order.symbol, order.amount, order.rate, 'BUY', type='limit')
         return res
 
-@app.post("/test/sell")
+@app.post("/test/sell", dependencies=[Depends(check_user)])
 async def test_sell(order: TestTradeModel):
     api = BitkubClient()
     async with httpx.AsyncClient() as client:
-        
-        res = await api.place_order(
-            client, 
-            sym=order.symbol, 
-            amt=order.amount, 
-            rat=order.rate, 
-            side='SELL', 
-            type='limit'
-        )
+        res = await api.place_order(client, order.symbol, order.amount, order.rate, 'SELL', type='limit')
         return res
     
-@app.get("/test/price/{symbol}")
+@app.get("/test/price/{symbol}", dependencies=[Depends(check_user)])
 async def check_current_price(symbol: str):
-    """
-    เช็คราคาล่าสุดก่อนกดซื้อ (จะได้กรอก Rate ถูก)
-    """
     api = BitkubClient()
     async with httpx.AsyncClient() as client:
-        # ใช้ get_candles เพื่อดูราคาปิดล่าสุด
         df = await api.get_candles(client, symbol)
         if df is not None:
             last_price = df.iloc[-1]["close"]
             return {"symbol": symbol, "last_price": last_price}
         return {"error": "Could not fetch price"}
 
-# --- WebSocket Endpoint ---
+# =====================================================================
+# --- 📡 WebSocket & Startup ---
+# =====================================================================
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await ws_manager.connect(websocket)
@@ -249,7 +283,7 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.on_event("startup")
 async def startup_event():
     print("🎬 Application Startup: Launching Bot Loop...")
-    # สร้าง Background Task เพื่อรันบอทโดยไม่ขัดขวาง Server
+    # เริ่มการทำงานของ Bot อัตโนมัติเมื่อเซิร์ฟเวอร์เปิด
     asyncio.create_task(bot.run_loop())
 
 if __name__ == "__main__":
