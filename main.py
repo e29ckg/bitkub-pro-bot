@@ -204,15 +204,28 @@ async def read_open_orders(sym: str = "THB_BTC"):
         response = await bk.get_open_orders(client, sym)
         return response
 
-# 🟢 [เพิ่มใหม่] API ดึงราคาเหรียญทั้งหมดเพื่อแสดงหน้า PnL
+# 🟢 [ปรับปรุงใหม่] API ดึงราคาเหรียญทั้งหมดเพื่อแสดงหน้า PnL
+# เปลี่ยนจาก Ticker V1 มาดึงจาก get_candles เพื่อให้ราคา "ตรงกับที่บอทเห็นเป๊ะๆ 100%"
 @app.get("/api/ticker", dependencies=[Depends(check_user)])
 async def get_ticker():
+    api = BitkubClient()
+    active_symbols = await db.get_active_symbols()
+    result = {}
+    
     async with httpx.AsyncClient() as client:
-        try:
-            res = await client.get("https://api.bitkub.com/api/market/ticker", timeout=5.0)
-            return res.json()
-        except Exception as e:
-            return {}
+        for row in active_symbols:
+            sym = row['symbol']
+            try:
+                # ดึงราคาปิดแท่งล่าสุด (วิธีเดียวกับที่บอทใช้เป๊ะ)
+                df = await api.get_candles(client, sym)
+                if df is not None and not df.empty:
+                    last_price = df.iloc[-1]["close"]
+                    # จัด Format คืนค่าให้ตรงกับที่หน้า dashboard.html คาดหวัง
+                    result[sym] = {"last": float(last_price)}
+            except Exception as e:
+                print(f"Ticker Fetch Error for {sym}: {e}")
+                
+    return result
 
 # --- Test Endpoints (สำหรับ Dev/Test) ---
 @app.post("/test/buy", dependencies=[Depends(check_user)])
