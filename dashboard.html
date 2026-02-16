@@ -29,7 +29,8 @@
         <div class="flex items-center gap-3 w-full md:w-auto justify-center md:justify-start">
             <i class="fa-solid fa-robot text-green-400 text-2xl"></i>
             <h1 class="text-xl font-bold text-white tracking-wide">Bitkub <span class="text-green-400">Pro Bot</span></h1>
-            <span id="connection-status" class="ml-2 text-xs text-slate-500"></span> </div>
+            <span id="connection-status" class="ml-2 text-xs text-slate-500"></span> 
+        </div>
           
         <div class="flex items-center gap-4 w-full md:w-auto justify-center md:justify-end">            
             <div id="status-badge" class="px-3 py-1 rounded-full text-sm font-semibold bg-gray-600 text-gray-200">
@@ -43,7 +44,7 @@
                 Loading...
             </button>
             
-            <button onclick="logout()" class="text-gray-400 hover:text-white ml-2">
+            <button onclick="logout()" class="text-gray-400 hover:text-white ml-2" title="Logout">
                 <i class="fas fa-sign-out-alt"></i> 
             </button>
         </div>
@@ -60,7 +61,9 @@
             <div class="glass-panel rounded-lg p-3 md:p-4 shadow-lg flex-col overflow-hidden h-96 md:h-auto md:flex-1 flex">
                 <div class="flex justify-between items-center mb-3">
                     <h2 class="text-base md:text-lg font-bold text-yellow-400"><i class="fa-solid fa-list"></i> Watchlist</h2>
-                    <button onclick="fetchSymbols()" class="text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full"><i class="fa-solid fa-rotate"></i></button>
+                    <button onclick="fetchSymbols()" class="text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full" title="Refresh">
+                        <i class="fa-solid fa-rotate"></i>
+                    </button>
                 </div>
                 <div class="overflow-auto flex-1">
                     <table class="w-full text-left border-collapse whitespace-nowrap">
@@ -68,6 +71,7 @@
                             <tr>
                                 <th class="p-2 text-xs uppercase">Symbol</th>
                                 <th class="p-2 text-xs uppercase text-right">Cost/Coin</th>
+                                <th class="p-2 text-xs uppercase text-right">Price/PnL</th> 
                                 <th class="p-2 text-xs uppercase text-center">Status</th>
                                 <th class="p-2 text-xs uppercase text-center">Action</th> 
                             </tr>
@@ -128,11 +132,11 @@
                     
                     <div class="grid grid-cols-2 gap-4">
                         <div class="mb-4">
-                            <label class="block text-slate-300 text-sm font-bold mb-2">Buy Amount</label>
+                            <label class="block text-slate-300 text-sm font-bold mb-2">Buy Amount (THB)</label>
                             <input id="addCostStInput" type="number" value="100" class="shadow appearance-none border border-slate-600 rounded w-full py-2 px-3 text-white bg-slate-700 focus:border-blue-500">
                         </div>
                         <div class="mb-4">
-                            <label class="block text-slate-300 text-sm font-bold mb-2">Max Limit</label>
+                            <label class="block text-slate-300 text-sm font-bold mb-2">Max Limit (THB)</label>
                             <input id="addLimitInput" type="number" value="1000" class="shadow appearance-none border border-slate-600 rounded w-full py-2 px-3 text-white bg-slate-700 focus:border-blue-500">
                         </div>
                     </div>
@@ -175,11 +179,11 @@
                     
                     <div class="grid grid-cols-2 gap-4">
                         <div class="mb-4">
-                            <label class="block text-slate-300 text-sm font-bold mb-2">Buy Amount</label>
+                            <label class="block text-slate-300 text-sm font-bold mb-2">Buy Amount (THB)</label>
                             <input id="editCostSt" type="number" class="shadow appearance-none border border-slate-600 rounded w-full py-2 px-3 text-white bg-slate-700 leading-tight focus:outline-none focus:border-yellow-500">
                         </div>
                         <div class="mb-4">
-                            <label class="block text-slate-300 text-sm font-bold mb-2">Max Limit</label>
+                            <label class="block text-slate-300 text-sm font-bold mb-2">Max Limit (THB)</label>
                             <input id="editLimit" type="number" class="shadow appearance-none border border-slate-600 rounded w-full py-2 px-3 text-white bg-slate-700 leading-tight focus:outline-none focus:border-yellow-500">
                         </div>
                     </div>
@@ -242,20 +246,55 @@
             container.scrollTop = container.scrollHeight;
         }
 
-        // --- CRUD Functions ---
+        // --- CRUD Functions & PnL Calculation ---
         
         async function fetchSymbols() {
             try {
+                // 1. ดึงข้อมูลเหรียญจาก DB ของเรา
                 const res = await fetch(`${API_URL}/symbols`);
                 const symbols = await res.json();
+
+                // 2. 🟢 ดึงราคาปัจจุบันจาก API Ticker ของ Bitkub
+                let tickerData = {};
+                try {
+                    const tickerRes = await fetch(`${API_URL}/api/ticker`);
+                    tickerData = await tickerRes.json();
+                } catch (e) {
+                    console.log("Ticker fetch error, skipping PnL update temporarily.");
+                }
+
                 const tbody = document.getElementById('symbolTableBody');
                 tbody.innerHTML = '';
 
                 symbols.forEach(sym => {
                     const statusClass = sym.status === 'true' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300';
                     const statusText = sym.status === 'true' ? 'ON' : 'OFF';
-                    const strategyNum = sym.strategy || 1; // 🟢 ดึง strategy มาแสดง
+                    const strategyNum = sym.strategy || 1; 
                     
+                    // --- 🟢 เริ่มการคำนวณ PnL ---
+                    let currentPrice = 0;
+                    let pnlPct = 0;
+                    let pnlColor = "text-slate-500";
+                    let pnlSign = "";
+
+                    // เช็คว่ามีข้อมูล Ticker ส่งมาไหม
+                    if (tickerData && tickerData[sym.symbol]) {
+                        currentPrice = tickerData[sym.symbol].last;
+                    }
+
+                    if (sym.coin > 0 && currentPrice > 0) {
+                        const avgCost = sym.cost / sym.coin; // หาราคาต้นทุนเฉลี่ย
+                        pnlPct = ((currentPrice - avgCost) / avgCost) * 100;
+
+                        if (pnlPct > 0) {
+                            pnlColor = "text-green-400";
+                            pnlSign = "+";
+                        } else if (pnlPct < 0) {
+                            pnlColor = "text-red-400";
+                        }
+                    }
+                    // ------------------------------------
+
                     const row = `
                         <tr class="hover:bg-slate-700 transition group border-b border-slate-700 last:border-0">
                             <td class="p-2">
@@ -264,8 +303,19 @@
                             </td>
                             <td class="p-2 text-right">
                                 <div class="text-slate-300 text-xs">${parseFloat(sym.cost).toFixed(2)} ฿</div>
-                                <div class="text-slate-500 text-[10px]">${parseFloat(sym.coin).toFixed(4)}</div>
+                                <div class="text-slate-500 text-[10px]">${parseFloat(sym.coin).toFixed(6)}</div>
                             </td>
+                            
+                            <td class="p-2 text-right">
+                                <div class="text-xs ${sym.coin > 0 ? 'text-white' : 'text-slate-500'}">
+                                    ${currentPrice > 0 ? currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 4}) : '...'}
+                                </div>
+                                ${sym.coin > 0 
+                                    ? `<div class="${pnlColor} text-[10px] font-bold">${pnlSign}${pnlPct.toFixed(2)}%</div>` 
+                                    : `<div class="text-slate-600 text-[10px]">No Position</div>`
+                                }
+                            </td>
+
                             <td class="p-2 text-center">
                                 <span class="text-[10px] px-2 py-0.5 rounded-full ${statusClass}">${statusText}</span>
                             </td>
@@ -281,7 +331,7 @@
                     `;
                     tbody.innerHTML += row;
                 });
-            } catch (e) { console.error(e); }
+            } catch (e) { console.error("Fetch symbols error:", e); }
         }
 
         // --- ADD MODAL LOGIC ---
@@ -289,7 +339,7 @@
             document.getElementById('addSymInput').value = '';
             document.getElementById('addCostStInput').value = '100';
             document.getElementById('addLimitInput').value = '1000';
-            document.getElementById('addStrategy').value = '1'; // 🟢 ค่า Default Strategy
+            document.getElementById('addStrategy').value = '1'; 
             
             const modal = document.getElementById('addModal');
             modal.classList.remove('opacity-0', 'pointer-events-none');
@@ -308,12 +358,11 @@
             const symbol = document.getElementById('addSymInput').value.toUpperCase();
             const costSt = document.getElementById('addCostStInput').value;
             const moneyLimit = document.getElementById('addLimitInput').value;
-            const strategy = document.getElementById('addStrategy').value; // 🟢 ดึงค่า Strategy
+            const strategy = document.getElementById('addStrategy').value; 
 
             if(!symbol) { alert("Please enter a symbol"); return; }
 
             try {
-                // 🟢 แนบ strategy เข้าไปใน JSON
                 await fetch(`${API_URL}/add_symbol`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -348,7 +397,7 @@
             document.getElementById('editCostSt').value = sym.cost_st;
             document.getElementById('editLimit').value = sym.money_limit;
             document.getElementById('editStatus').value = sym.status;
-            document.getElementById('editStrategy').value = sym.strategy || 1; // 🟢 ดึง strategy เดิมมาแสดง
+            document.getElementById('editStrategy').value = sym.strategy || 1; 
 
             const modal = document.getElementById('editModal');
             modal.classList.remove('opacity-0', 'pointer-events-none');
@@ -363,7 +412,6 @@
 
         async function saveChanges() {
             const id = document.getElementById('editId').value;
-            // 🟢 แนบ strategy เข้าไปใน JSON
             const data = {
                 status: document.getElementById('editStatus').value,
                 cost_st: parseFloat(document.getElementById('editCostSt').value),
@@ -395,7 +443,7 @@
             if(!confirm("Disconnect from Dashboard?")) return;
             try {
                 await fetch('/logout', { method: 'POST' });
-                window.location.reload();
+                window.location.href = '/login'; // 🟢 เปลี่ยนจาก reload เป็น redirect กลับหน้า login ชัวร์สุด
             } catch (e) { alert("Logout failed"); }
         }
 
@@ -503,7 +551,10 @@
             fetchSymbols();
             loadHistory();
             checkInitialStatus();
-            setInterval(fetchSymbols, 5000);
+            
+            // 🟢 อัปเดตตารางราคาและ PnL ทุกๆ 5 วินาที
+            setInterval(fetchSymbols, 5000); 
+            
             setInterval(loadHistory, 30000);
             setInterval(checkInitialStatus, 5000);
         };

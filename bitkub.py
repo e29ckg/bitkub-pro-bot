@@ -202,7 +202,18 @@ class BitkubClient:
                 print(f"❌ Bitkub API Error ({response.status_code}): {response.text}")
                 print(f"   Payload Sent: {payload_str}")
                 
-            return response.json()
+            res_json = response.json()
+            
+            # 🟢 [แก้ไขเพิ่มเติม] แนบข้อมูล rat/amt ที่เราส่งไป กลับไปใน result ด้วย
+            # เพื่อให้ bot_engine เอาไปใช้ต่อได้ง่ายขึ้น (เผื่อ API ส่งกลับมาไม่ครบ)
+            if res_json.get('error') == 0 and isinstance(res_json.get('result'), dict):
+                # ถ้าเป็น market order API จะคืนค่า rat=0 มาให้ เราจะไม่แก้ตรงนี้
+                # แต่เราจะฝากข้อมูลไปในตัวแปรอื่นให้ bot_engine รู้
+                res_json['result']['_req_rat'] = safe_rat
+                res_json['result']['_req_amt'] = safe_amt
+                
+            return res_json
+            
         except Exception as e:
             return {"error": -1, "result": str(e)}
 

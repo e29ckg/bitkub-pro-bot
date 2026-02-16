@@ -13,20 +13,18 @@ from bitkub import BitkubClient
 from bot_engine import BotEngine
 
 # --- Settings & Config ---
-# ใช้รหัสผ่านจาก .env หรือค่า default
 BOT_PASSWORD = os.getenv("BOT_PASSWORD", "1234")
 
 # เริ่มต้น DB
 db.init_db() 
 
 app = FastAPI(
-    docs_url=None,    # ❌ ปิด Swagger UI (/docs)
-    redoc_url=None,   # ❌ ปิด ReDoc (/redoc)
-    openapi_url=None  # ❌ ปิด JSON Schema (/openapi.json)
+    docs_url=None,    
+    redoc_url=None,   
+    openapi_url=None  
 )
 
 # --- Middlewares ---
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -76,7 +74,6 @@ class TestTradeModel(BaseModel):
 # --- 🔒 ระบบ Security / Gatekeeper ---
 # =====================================================================
 async def check_user(request: Request):
-    # 🟢 ดึงค่าจาก Cookie
     token = request.cookies.get("access_token")
     if token != "logged_in_success":
         raise HTTPException(status_code=401, detail="Please login first")
@@ -85,10 +82,8 @@ async def check_user(request: Request):
 # =====================================================================
 # --- 🖥️ Web Pages (HTML Routes) ---
 # =====================================================================
-
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    # 🟢 เช็คการล็อกอินผ่าน Cookie
     token = request.cookies.get("access_token")
     if token == "logged_in_success":
         return RedirectResponse(url="/dashboard", status_code=303)
@@ -102,25 +97,8 @@ async def login_page(request: Request):
     except FileNotFoundError:
         return "Login file not found. Please create login.html"
 
-# =====================================================================
-# --- 🔑 Auth APIs ---
-# =====================================================================
-
-@app.post("/login")
-async def login(password: str = Form(...)):
-    if password == BOT_PASSWORD:  
-        # 🟢 [แก้ไข] ส่งแค่ JSON กลับไปบอก JS ว่าสำเร็จ
-        response = JSONResponse(content={"message": "Login Success"})
-        # ฝัง Cookie เหมือนเดิม
-        response.set_cookie(key="access_token", value="logged_in_success", httponly=True)
-        return response
-    else:
-        # 🟢 [แก้ไข] ถ้ารหัสผิด ส่ง HTTP 401 เพื่อให้ JS โชว์ข้อความ Access Denied
-        raise HTTPException(status_code=401, detail="Incorrect Password")
-
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
-    # 🟢 หน้าเว็บต้องล็อกอิน
     token = request.cookies.get("access_token")
     if token != "logged_in_success":
         return RedirectResponse(url="/login", status_code=303)
@@ -134,38 +112,24 @@ async def dashboard_page(request: Request):
 # =====================================================================
 # --- 🔑 Auth APIs ---
 # =====================================================================
-
 @app.post("/login")
 async def login(password: str = Form(...)):
     if password == BOT_PASSWORD:  
-        # ถ้าล็อกอินผ่าน ให้ Redirect ไป Dashboard
-        response = RedirectResponse(url="/dashboard", status_code=303)
-        # ฝัง Cookie ให้จำค่า
+        response = JSONResponse(content={"message": "Login Success"})
         response.set_cookie(key="access_token", value="logged_in_success", httponly=True)
         return response
     else:
-        # ถ้ารหัสผิด เด้งแจ้งเตือนแล้วกลับหน้าล็อกอิน
-        return HTMLResponse("<script>alert('Incorrect Password'); window.location.href='/login';</script>")
+        raise HTTPException(status_code=401, detail="Incorrect Password")
     
 @app.post("/logout")
 async def logout():
-    # ฝั่ง JS ใน dashboard.html จะเรียกผ่าน API นี้
     response = JSONResponse(content={"message": "Logout Success"})
     response.delete_cookie(key="access_token")
     return response
 
-@app.get("/logout-page") 
-async def logout_page():
-    # สำรองกรณีอยากใช้ลิงก์ธรรมดา <a href="/logout-page">
-    response = RedirectResponse(url="/login", status_code=303)
-    response.delete_cookie(key="access_token")
-    return response
-
-
 # =====================================================================
 # --- 🤖 Bot Control APIs (ต้อง Login ก่อน) ---
 # =====================================================================
-
 @app.get("/bot-status")
 async def get_bot_status():
     return {"running": bot.running}
@@ -182,11 +146,9 @@ async def stop_bot():
     bot.running = False
     return {"message": "Bot stopping..."}
 
-
 # =====================================================================
 # --- 📊 Database & Trading APIs (ต้อง Login ก่อน) ---
 # =====================================================================
-
 @app.get("/symbols", dependencies=[Depends(check_user)])
 async def read_symbols():
     return await db.get_all_symbols()
@@ -202,7 +164,7 @@ async def add_symbol(request: Request):
     cost_st = float(data.get("cost_st", 100))
     strategy = int(data.get("strategy", 1))
 
-    success = await db.add_symbol(symbol, money_limit, cost_st,  strategy)
+    success = await db.add_symbol(symbol, money_limit, cost_st, strategy)
     
     if success:
         return {"status": "success", "message": f"Added {symbol}"}
@@ -242,6 +204,16 @@ async def read_open_orders(sym: str = "THB_BTC"):
         response = await bk.get_open_orders(client, sym)
         return response
 
+# 🟢 [เพิ่มใหม่] API ดึงราคาเหรียญทั้งหมดเพื่อแสดงหน้า PnL
+@app.get("/api/ticker", dependencies=[Depends(check_user)])
+async def get_ticker():
+    async with httpx.AsyncClient() as client:
+        try:
+            res = await client.get("https://api.bitkub.com/api/market/ticker", timeout=5.0)
+            return res.json()
+        except Exception as e:
+            return {}
+
 # --- Test Endpoints (สำหรับ Dev/Test) ---
 @app.post("/test/buy", dependencies=[Depends(check_user)])
 async def test_buy(order: TestTradeModel):
@@ -270,7 +242,6 @@ async def check_current_price(symbol: str):
 # =====================================================================
 # --- 📡 WebSocket & Startup ---
 # =====================================================================
-
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await ws_manager.connect(websocket)
@@ -283,7 +254,6 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.on_event("startup")
 async def startup_event():
     print("🎬 Application Startup: Launching Bot Loop...")
-    # เริ่มการทำงานของ Bot อัตโนมัติเมื่อเซิร์ฟเวอร์เปิด
     asyncio.create_task(bot.run_loop())
 
 if __name__ == "__main__":

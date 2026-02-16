@@ -163,7 +163,7 @@ class BotEngine:
 
             buy_volume = cost_st
             
-            res = await self.api.place_order(client, sym, buy_volume, 0, 'buy', type='market')
+            reres = await self.api.place_order(client, sym, buy_volume, 0, 'buy', type='market')
             
             if res.get('error') == 0:
                 result = res['result']
@@ -173,6 +173,9 @@ class BotEngine:
 
                 new_cost = cost + buy_volume
                 new_coin = coin + received_coin
+                
+                # 🟢 [เพิ่มบรรทัดนี้] แก้ไข rat ที่เป็น 0 ให้เป็นราคาจริง (price)
+                result['rat'] = price 
                 
                 await db.update_cost_coin(s_id, new_cost, new_coin)
                 await db.save_order(sym, result, f"BUY: {reason}")
@@ -199,6 +202,9 @@ class BotEngine:
 
                 new_cost = max(0, cost - thb_rec)
                 new_coin = 0
+                
+                # 🟢 [เพิ่มบรรทัดนี้] แก้ไข rat ที่เป็น 0 ให้เป็นราคาจริง (price)
+                result['rat'] = price 
                 
                 await db.update_cost_coin(s_id, new_cost, new_coin)
                 await db.save_order(sym, result, f"SELL: {reason}")
