@@ -174,36 +174,41 @@ class BotEngine:
                 new_cost = cost + buy_volume
                 new_coin = coin + received_coin
                 
-                # 🟢 [แก้ไข] บังคับเอา "ราคาตลาดล่าสุด" ไปทับเลข 0 ก่อนเซฟลง Database
                 result['rat'] = price 
                 
                 await db.update_cost_coin(s_id, new_cost, new_coin)
                 await db.save_order(sym, result, f"BUY: {reason}")
                 
-                await self.log_and_broadcast(f"✅ {sym} BUY Market Success (Got: {received_coin:.6f} Coin)")
+                await self.log_and_broadcast(f"✅ {sym} BUY Market Success (Got: {received_coin:.8f} Coin)")
             else:
                 await self.log_and_broadcast(f"❌ {sym} BUY Error: {res.get('error')}")
 
         elif action == "SELL":
             if coin <= 0: return
             
-            if (coin * price) < 10:
+            # 🟢 [แก้ไข] ดึงยอดเหรียญจริงในกระเป๋า ป้องกันปัญหาจำนวนเหรียญใน DB ไม่ตรงกับความจริง
+            coin_name = sym.split('_')[1] # ตัด THB_BTC เอาแค่ BTC
+            real_balance = float(wallet.get('result', {}).get(coin_name, 0))
+            
+            # ใช้จำนวนที่ "น้อยที่สุด" เพื่อไม่ให้ขายเกินตัว
+            sell_amount = min(coin, real_balance)
+
+            if (sell_amount * price) < 10:
                 await db.update_cost_coin(s_id, 0, 0) 
-                await self.log_and_broadcast(f"⚠️ {sym}: ตัดขาดทุนเศษเหรียญ (<10 บาท) รีเซ็ต DB เป็น 0")
+                await self.log_and_broadcast(f"⚠️ {sym}: ตัดขาดทุน/เศษเหรียญ (<10 บาท) รีเซ็ต DB เป็น 0")
                 return
 
-            res = await self.api.place_order(client, sym, coin, 0, 'sell', type='market')
+            res = await self.api.place_order(client, sym, sell_amount, 0, 'sell', type='market')
             
             if res.get('error') == 0:
                 result = res['result']
                 
                 thb_rec = result.get('rec', 0)
-                if thb_rec == 0: thb_rec = coin * price
+                if thb_rec == 0: thb_rec = sell_amount * price
 
                 new_cost = max(0, cost - thb_rec)
                 new_coin = 0
                 
-                # 🟢 [แก้ไข] บังคับเอา "ราคาตลาดล่าสุด" ไปทับเลข 0 ก่อนเซฟลง Database
                 result['rat'] = price 
                 
                 await db.update_cost_coin(s_id, new_cost, new_coin)
@@ -214,7 +219,7 @@ class BotEngine:
                 await self.log_and_broadcast(f"❌ {sym} SELL Error: {res.get('error')}")
                 if res.get('error') == 18:
                     await db.update_cost_coin(s_id, 0, 0)
-                    await self.log_and_broadcast(f"ℹ️ {sym}: Updated DB to 0 Cost/Coin due to insufficient balance.")
+                    await self.log_and_broadcast(f"ℹ️ {sym}: Updated DB to 0 due to insufficient balance.")
     
     async def clear_pending_orders(self, bitkub_client, http_client, symbol):
         print(f"🧹 Checking pending orders for {symbol}...")

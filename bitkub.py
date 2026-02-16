@@ -141,48 +141,20 @@ class BitkubClient:
         
         method = "POST"
 
-        # แปลงเป็น float เพื่อคำนวณ
-        safe_amt = float(amt)
-        safe_rat = float(rat)
+        # 🟢 1. ป้องกันเลข Scientific Notation (เช่น 4.7e-05) เปลี่ยนเป็นสติงเรียบๆ
+        def num_to_str(n):
+            s = f"{float(n):.8f}".rstrip('0').rstrip('.')
+            return '0' if s == '' else s
 
-        # --- 🟢 (NEW) ตรวจสอบขั้นต่ำ 10 บาท ก่อนยิง API ---
-        # ป้องกัน Error 12 จากฝั่ง Client เลย ไม่ต้องรอ Server ตอบกลับ
-        total_value = safe_amt
-        if side.upper() == 'SELL':
-            total_value = safe_amt * safe_rat
+        amt_str = num_to_str(amt)
+        rat_str = num_to_str(rat)
 
-        if total_value < 10:
-            print(f"⚠️ Order Rejected (Client-side): มูลค่ารวม {total_value} บาท (ต่ำกว่าขั้นต่ำ 10 บาท)")
-            return {
-                "error": 12, 
-                "result": f"Amount too low. Total value: {total_value} THB (Min: 10 THB)"
-            }
-        # ------------------------------------------------
-
-        # 🟢 ปรับปรุงการจัดการทศนิยม
-        # Amount ควรมีทศนิยมได้เยอะ (เช่น 8 ตำแหน่ง) ส่วน Price (THB) เอา 2 ตำแหน่ง
-        def clean_num(n, is_amt=False):
-            if n == int(n): return int(n)
-            if is_amt:
-                # ถ้าเป็น Amount ให้ปัดไม่เกิน 8 ตำแหน่ง เพื่อป้องกัน 0.00001 กลายเป็น 0.00
-                return round(float(n), 8) 
-            return round(float(n), 2)
-
-        # 🟢 ขอเวลา (ms)
         ts = await self.get_server_timestamp(client)
 
-        # 🟢 Payload V3
-        payload = {
-            "sym": query_symbol,
-            "amt": clean_num(safe_amt, is_amt=True), # ใช้ is_amt=True
-            "rat": clean_num(safe_rat, is_amt=False),
-            "typ": type
-        }
-
-        # แปลงเป็น JSON String ห้ามมีเว้นวรรค
-        payload_str = json.dumps(payload, separators=(',', ':'), sort_keys=True)
+        # 🟢 2. สร้าง JSON String ด้วยตัวเองเพื่อบังคับฟอร์แมตตัวเลข และเรียงคีย์ให้ตรงเป๊ะ
+        # คีย์ต้องเรียงตามลำดับตัวอักษร: amt, rat, sym, typ เพื่อให้ทำ Signature ผ่าน
+        payload_str = f'{{"amt":{amt_str},"rat":{rat_str},"sym":"{query_symbol}","typ":"{type}"}}'
         
-        # 🟢 สร้าง Signature (Timestamp + Method + Endpoint + Payload)
         sig = self._sign_v3(ts, method, endpoint, payload_str)
 
         headers = {
@@ -197,20 +169,15 @@ class BitkubClient:
         try:
             response = await client.post(url, headers=headers, data=payload_str)
             
-            # Debug Error กรณีมีปัญหา
             if response.status_code != 200:
                 print(f"❌ Bitkub API Error ({response.status_code}): {response.text}")
                 print(f"   Payload Sent: {payload_str}")
                 
             res_json = response.json()
             
-            # 🟢 [แก้ไขเพิ่มเติม] แนบข้อมูล rat/amt ที่เราส่งไป กลับไปใน result ด้วย
-            # เพื่อให้ bot_engine เอาไปใช้ต่อได้ง่ายขึ้น (เผื่อ API ส่งกลับมาไม่ครบ)
             if res_json.get('error') == 0 and isinstance(res_json.get('result'), dict):
-                # ถ้าเป็น market order API จะคืนค่า rat=0 มาให้ เราจะไม่แก้ตรงนี้
-                # แต่เราจะฝากข้อมูลไปในตัวแปรอื่นให้ bot_engine รู้
-                res_json['result']['_req_rat'] = safe_rat
-                res_json['result']['_req_amt'] = safe_amt
+                res_json['result']['_req_rat'] = float(rat)
+                res_json['result']['_req_amt'] = float(amt)
                 
             return res_json
             
