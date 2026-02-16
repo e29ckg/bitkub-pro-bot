@@ -250,11 +250,9 @@
         
         async function fetchSymbols() {
             try {
-                // 1. ดึงข้อมูลเหรียญจาก DB ของเรา
                 const res = await fetch(`${API_URL}/symbols`);
                 const symbols = await res.json();
 
-                // 2. 🟢 ดึงราคาปัจจุบันจาก API Ticker ของ Bitkub
                 let tickerData = {};
                 try {
                     const tickerRes = await fetch(`${API_URL}/api/ticker`);
@@ -271,25 +269,26 @@
                     const statusText = sym.status === 'true' ? 'ON' : 'OFF';
                     const strategyNum = sym.strategy || 1; 
                     
-                    // --- 🟢 เริ่มการคำนวณ PnL ---
+                    // --- 🟢 เริ่มการคำนวณ PnL (เพิ่มการคำนวณกำไรเป็นบาท) ---
                     let currentPrice = 0;
                     let pnlPct = 0;
+                    let pnlTHB = 0; // ตัวแปรเก็บกำไร/ขาดทุนเป็นเงินบาท
                     let pnlColor = "text-slate-500";
                     let pnlSign = "";
 
-                    // เช็คว่ามีข้อมูล Ticker ส่งมาไหม
                     if (tickerData && tickerData[sym.symbol]) {
                         currentPrice = tickerData[sym.symbol].last;
                     }
 
                     if (sym.coin > 0 && currentPrice > 0) {
-                        const avgCost = sym.cost / sym.coin; // หาราคาต้นทุนเฉลี่ย
-                        pnlPct = ((currentPrice - avgCost) / avgCost) * 100;
+                        const currentValue = sym.coin * currentPrice; // มูลค่าปัจจุบัน (จำนวนเหรียญ * ราคาตอนนี้)
+                        pnlTHB = currentValue - sym.cost; // กำไรเป็นบาท = มูลค่าปัจจุบัน - ทุน
+                        pnlPct = (pnlTHB / sym.cost) * 100; // คิดเป็นเปอร์เซ็นต์
 
-                        if (pnlPct > 0) {
+                        if (pnlTHB > 0) {
                             pnlColor = "text-green-400";
                             pnlSign = "+";
-                        } else if (pnlPct < 0) {
+                        } else if (pnlTHB < 0) {
                             pnlColor = "text-red-400";
                         }
                     }
@@ -311,7 +310,7 @@
                                     ${currentPrice > 0 ? currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 4}) : '...'}
                                 </div>
                                 ${sym.coin > 0 
-                                    ? `<div class="${pnlColor} text-[10px] font-bold">${pnlSign}${pnlPct.toFixed(2)}%</div>` 
+                                    ? `<div class="${pnlColor} text-[10px] font-bold">${pnlSign}${pnlPct.toFixed(2)}% (${pnlSign}${pnlTHB.toFixed(2)} ฿)</div>` 
                                     : `<div class="text-slate-600 text-[10px]">No Position</div>`
                                 }
                             </td>
