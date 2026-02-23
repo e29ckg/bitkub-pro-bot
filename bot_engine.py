@@ -4,12 +4,11 @@ import logging
 import os
 import database as db
 import indicators as ind
-import config  # <--- เรียกใช้ค่า Config
-import utils   # <--- (เผื่อเรียกใช้ในอนาคต)
+import config  
+import utils   
 import time
 from bitkub import BitkubClient
 
-# ตั้งค่า Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 class BotEngine:
@@ -23,23 +22,24 @@ class BotEngine:
         self.server_status_ok = True 
         self.last_server_msg = "All endpoints ok"
         self.processing_coins = set()
+        
+        # 🟢 [ใหม่] หน่วยความจำสำหรับเก็บ "ราคาสูงสุด" ของแต่ละเหรียญที่กำลังทำกำไร
+        self.trailing_highs = {} 
     
     async def send_telegram(self, message):
         if not self.tg_token or not self.chat_id:
             return 
             
         url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
-        
         payload = {
             "chat_id": self.chat_id,
             "text": message,
-            "parse_mode": "HTML" # เผื่ออยากจัดรูปแบบตัวหนา/เอียง
+            "parse_mode": "HTML" 
         }
 
         try:
             async with httpx.AsyncClient() as client:
                 await client.post(url, data=payload, timeout=10.0)
-                
         except Exception as e:
             print(f"Telegram Error: {e}")
 
@@ -85,7 +85,6 @@ class BotEngine:
         if "BUY" in message or "SELL" in message or "Error" in message or "Active" in message or "Changed" in message:
             await self.send_telegram(message)
 
-    # 🟢 [แก้ไข] เพิ่มพารามิเตอร์ strategy_type เข้ามา
     def analyze_market(self, df, symbol, strategy_type=1):
         df["RSI"] = ind.calculate_rsi(df["close"])
         df["MACD"], df["Signal"] = ind.calculate_macd(df["close"])
@@ -97,9 +96,6 @@ class BotEngine:
         decisions = []
         signal = "HOLD"
         
-        # ==========================================
-        # 🟢 STRATEGY 1: Trend & Reversal (ดั้งเดิม/ปลอดภัย)
-        # ==========================================
         if strategy_type == 1:
             if trend == "Downtrend":
                 if last["RSI"] < config.RSI_OVERSOLD:
@@ -116,9 +112,6 @@ class BotEngine:
                     signal = "SELL"
                     decisions.append("Price > BB Upper")
 
-        # ==========================================
-        # 🟢 STRATEGY 2: RSI Scalping (เล่นสั้น เน้นรอบไว)
-        # ==========================================
         elif strategy_type == 2:
             if last["RSI"] < 35: 
                 signal = "BUY"
@@ -127,18 +120,11 @@ class BotEngine:
                 signal = "SELL"
                 decisions.append(f"Scalp SELL (RSI {last['RSI']:.2f})")
 
-        # ==========================================
-        # 🟢 STRATEGY 3: MACD Cross (ตามเทรนด์ เล่นรอบใหญ่)
-        # ==========================================
         elif strategy_type == 3:
             prev = df.iloc[-2] 
-            
-            # Golden Cross (ตัดขึ้น)
             if prev["MACD"] <= prev["Signal"] and last["MACD"] > last["Signal"]:
                 signal = "BUY"
                 decisions.append("MACD Golden Cross")
-                
-            # Death Cross (ตัดลง)
             elif prev["MACD"] >= prev["Signal"] and last["MACD"] < last["Signal"]:
                 signal = "SELL"
                 decisions.append("MACD Death Cross")
@@ -162,23 +148,19 @@ class BotEngine:
                 return
 
             buy_volume = cost_st
-            
             res = await self.api.place_order(client, sym, buy_volume, 0, 'buy', type='market')
             
             if res.get('error') == 0:
                 result = res['result']
-                
                 received_coin = result.get('rec', 0)
                 if received_coin == 0: received_coin = buy_volume / price
 
                 new_cost = cost + buy_volume
                 new_coin = coin + received_coin
-                
                 result['rat'] = price 
                 
                 await db.update_cost_coin(s_id, new_cost, new_coin)
                 await db.save_order(sym, result, f"BUY: {reason}")
-                
                 await self.log_and_broadcast(f"✅ {sym} BUY Market Success (Got: {received_coin:.8f} Coin)")
             else:
                 await self.log_and_broadcast(f"❌ {sym} BUY Error: {res.get('error')}")
@@ -186,11 +168,8 @@ class BotEngine:
         elif action == "SELL":
             if coin <= 0: return
             
-            # 🟢 [แก้ไข] ดึงยอดเหรียญจริงในกระเป๋า ป้องกันปัญหาจำนวนเหรียญใน DB ไม่ตรงกับความจริง
-            coin_name = sym.split('_')[1] # ตัด THB_BTC เอาแค่ BTC
+            coin_name = sym.split('_')[1] 
             real_balance = float(wallet.get('result', {}).get(coin_name, 0))
-            
-            # ใช้จำนวนที่ "น้อยที่สุด" เพื่อไม่ให้ขายเกินตัว
             sell_amount = min(coin, real_balance)
 
             if (sell_amount * price) < 10:
@@ -202,38 +181,30 @@ class BotEngine:
             
             if res.get('error') == 0:
                 result = res['result']
-                
                 thb_rec = result.get('rec', 0)
                 if thb_rec == 0: thb_rec = sell_amount * price
 
                 new_cost = max(0, cost - thb_rec)
                 new_coin = 0
-                
                 result['rat'] = price 
                 
                 await db.update_cost_coin(s_id, new_cost, new_coin)
                 await db.save_order(sym, result, f"SELL: {reason}")
-                
                 await self.log_and_broadcast(f"✅ {sym} SELL Market Success (Got: {thb_rec:.2f} THB)")
             else:                
-                await self.log_and_broadcast(f"❌ {sym} SELL Error: {res.get('error')}")
+                await self.log_and_broadcast(f"❌ {sym} SELL Error: {res.get('error')} | Response: {res.get('result')}")
                 if res.get('error') == 18:
                     await db.update_cost_coin(s_id, 0, 0)
                     await self.log_and_broadcast(f"ℹ️ {sym}: Updated DB to 0 due to insufficient balance.")
     
     async def clear_pending_orders(self, bitkub_client, http_client, symbol):
-        print(f"🧹 Checking pending orders for {symbol}...")
-        
         orders_res = await bitkub_client.get_open_orders(http_client, symbol)
         
         if orders_res.get('error') != 0:
-            await self.log_and_broadcast(f"❌ Failed to get open orders {symbol}: {orders_res}")
             return
 
         open_orders = orders_res.get('result', [])
         if not open_orders: return
-
-        print(f"⚠️ {symbol}: Found {len(open_orders)} pending orders. Cancelling & Reverting DB...")
 
         current_db_data = await db.get_symbol_by_name(symbol)
         if not current_db_data: return
@@ -252,38 +223,25 @@ class BotEngine:
             cancel_res = await bitkub_client.cancel_order(http_client, symbol, o_id, o_side)
             
             if cancel_res.get('error') == 0:
-                print(f"   ✅ Cancelled {o_id} ({o_side}) success.")
-                total_value = o_amt * o_rate
                 log_reason = ""
-
                 if o_side == 'buy':
                     current_cost = max(0, current_cost - o_amt)
                     current_coin = max(0, current_coin - o_rec)
-                    log_reason = f"Cancelled BUY: Revert -{o_amt:.2f} THB, -{o_rec} Coin"
+                    log_reason = f"Cancelled BUY: Revert -{o_amt:.2f} THB"
                 elif o_side == 'sell':
                     current_cost = current_cost + o_rec
                     current_coin = current_coin + o_amt
-                    log_reason = f"Cancelled SELL: Return +{o_amt} Coin, Cost restored +{o_rec:.2f}"
+                    log_reason = f"Cancelled SELL: Return +{o_amt} Coin"
 
                 await db.update_cost_coin(s_id, current_cost, current_coin)
                 
-                dummy_result = {
-                    "id": o_id,
-                    "amt": o_amt, 
-                    "rat": o_rate,
-                    "ts": int(time.time()),
-                    "typ": "limit"
-                }
+                dummy_result = {"id": o_id, "amt": o_amt, "rat": o_rate, "ts": int(time.time()), "typ": "limit"}
                 await db.save_order(symbol, dummy_result, log_reason)
-                await self.log_and_broadcast(f"🧹 {symbol}: Cancelled {o_side.upper()} {o_id} & Reverted DB.")
-
-            else:
-                print(f"   ❌ Cancel failed {symbol} {o_id}: {cancel_res}")
+                await self.log_and_broadcast(f"🧹 {symbol}: Cancelled {o_side.upper()} {o_id}")
 
     async def process_symbol(self, client, symbol_data):
         sym = symbol_data['symbol']
         status = symbol_data['status']
-        # 🟢 ดึง strategy จาก DB (ค่า Default คือ 1)
         strategy_type = symbol_data.get('strategy', 1) 
         
         if status != 'true': return
@@ -291,27 +249,61 @@ class BotEngine:
         df = await self.api.get_candles(client, sym)
         if df is None: return
 
-        # 🟢 ส่ง strategy_type เข้าไปเพื่อวิเคราะห์ให้ตรงกลยุทธ์
         signal, reason, last_close = self.analyze_market(df, sym, strategy_type)
-        
         previous_signal = self.last_status.get(sym, "HOLD")
         
-        log_message = f"🔍 {sym} (S{strategy_type}): {last_close} | {signal} | {reason}"
+        log_message = f"🔍 {sym} (S{strategy_type}): {last_close} | {signal}"
         await self.ws_manager.broadcast(log_message)
 
         if signal != previous_signal:
             await self.clear_pending_orders(self.api, client, sym)
-            
-            if signal in ["BUY", "SELL"]:
-                msg = f"🚨 {sym} Status Changed!\nStrategy: {strategy_type}\nFrom: {previous_signal}\nTo: {signal}\nReason: {reason}\nPrice: {last_close}"
-                await self.send_telegram(msg)
-
             self.last_status[sym] = signal
             
-        # === กรณีสัญญาณสั่งซื้อ (BUY) ===
+        # ==============================================================
+        # 🟢 1. ระบบ Trailing Take Profit (TTP) - ทำงานเป็นอิสระจาก Strategy
+        # ==============================================================
+        if symbol_data['coin'] > 0:
+            avg_cost = symbol_data['cost'] / symbol_data['coin']
+            current_pnl_pct = ((last_close - avg_cost) / avg_cost) * 100
+            
+            # ดึงค่าจาก config (ใช้ getattr เผื่อลืมเติมตัวแปรใน config.py จะได้ไม่ error)
+            activation_target = getattr(config, 'TTP_ACTIVATION_PCT', 1.5) + config.FEE_BUFFER
+            drop_limit = getattr(config, 'TTP_DROP_PCT', 0.5)
+
+            # 1.1 ถ้ากำไรถึงเป้า -> เริ่มจำราคาสูงสุด (Activated)
+            if current_pnl_pct >= activation_target:
+                if sym not in self.trailing_highs or last_close > self.trailing_highs[sym]:
+                    self.trailing_highs[sym] = last_close
+                    await self.ws_manager.broadcast(f"🚀 {sym}: TTP Activated/Updated! New High: {last_close} (+{current_pnl_pct:.2f}%)")
+
+            # 1.2 ถ้าโหมด TTP ทำงานอยู่ ให้จับตาดูว่าราคาตกจากยอดเขาหรือยัง
+            if sym in self.trailing_highs:
+                highest_price = self.trailing_highs[sym]
+                drawdown_price = highest_price * (1 - (drop_limit / 100)) # คำนวณราคายอมถอย (เช่น ห่างยอด 0.5%)
+
+                if last_close <= drawdown_price:
+                    reason_tp = f"🎯 Trailing Take Profit | Drop from High {highest_price} | Sold at +{current_pnl_pct:.2f}%"
+                    
+                    if sym not in self.processing_coins:
+                        self.processing_coins.add(sym)
+                        try:
+                            await self.execute_trade(client, symbol_data, "SELL", last_close, reason_tp)
+                            del self.trailing_highs[sym] # ขายแล้ว ล้างความจำทิ้ง
+                            return # จบรอบการทำงานทันที ไม่ต้องไปเช็ค Strategy
+                        finally:
+                            if sym in self.processing_coins:
+                                self.processing_coins.remove(sym)
+
+        # 🟢 ล้างความจำทิ้งถ้ายอดเหรียญเป็น 0 แล้ว (เช่น ขายตัดขาดทุนมือ)
+        if symbol_data['coin'] == 0 and sym in self.trailing_highs:
+            del self.trailing_highs[sym]
+
+
+        # ==============================================================
+        # 🟢 2. ระบบ Strategy หลัก (BUY / SELL ปกติ)
+        # ==============================================================
         if signal == "BUY":
             if sym in self.processing_coins:
-                print(f"⏳ {sym} is already being processed. Skip.")
                 return 
             
             if symbol_data['coin'] == 0:
@@ -321,12 +313,6 @@ class BotEngine:
                         await self.execute_trade(client, symbol_data, "BUY", last_close, reason)
                     finally:
                         self.processing_coins.remove(sym)
-                else:
-                     if previous_signal != "BUY":
-                        msg = f"⚠️ {sym}: Signal BUY but Money Limit Exceeded ({symbol_data['cost']}/{symbol_data['money_limit']})"
-                        await self.log_and_broadcast(msg)
-            
-            # 🟢 3.2 DCA (ซื้อถัว) - ปรับเป็น Smart DCA นิดหน่อย
             else:
                 if symbol_data['coin'] > 0:
                     avg_price = symbol_data['cost'] / symbol_data['coin']
@@ -337,48 +323,38 @@ class BotEngine:
                         if symbol_data['cost'] + symbol_data['cost_st'] <= symbol_data['money_limit']:
                             reason_dca = f"{reason} (DCA: Price dropped > {config.DCA_DROP_PCT}%)"
                             await self.execute_trade(client, symbol_data, "BUY", last_close, reason_dca)
-                        else:
-                            if previous_signal != "BUY":
-                                msg = f"⚠️ {sym}: Want to DCA but Money Limit Exceeded"
-                                await self.log_and_broadcast(msg)
-                    else:
-                        pass # รอให้ราคาตกถึงเป้า DCA ก่อน
 
-        # === กรณีสัญญาณสั่งขาย (SELL) ===
         elif signal == "SELL":
             if sym in self.processing_coins:
-                print(f"⏳ {sym} is already being sold. Skip.")
                 return 
 
             if symbol_data['coin'] > 0:
                 avg_cost = symbol_data['cost'] / symbol_data['coin']
                 current_pnl_pct = ((last_close - avg_cost) / avg_cost) * 100
+                
+                # ถ้า Strategy สั่งให้ขาย จะขายต่อเมื่อกำไรอย่างน้อย 1% (ป้องกันโดนหลอกขายหมู)
                 min_profit_pct = 1.0 + config.FEE_BUFFER 
 
                 if current_pnl_pct >= min_profit_pct:
-                    reason_tp = f"{reason} | 💰 TP (+{current_pnl_pct:.2f}%)"
+                    reason_tp = f"{reason} | Strategy TP (+{current_pnl_pct:.2f}%)"
                     
                     self.processing_coins.add(sym)
                     try:
                         await self.execute_trade(client, symbol_data, "SELL", last_close, reason_tp)
                     finally:
                         self.processing_coins.remove(sym)
-                else:
-                    pass
 
     async def run_loop(self):
         self.running = True
-        await self.log_and_broadcast("🚀 Bot Started (Multi-Strategy & Market Order)")
+        await self.log_and_broadcast("🚀 Bot Started (Trailing Take Profit + Multi-Strategy)")
         
         async with httpx.AsyncClient() as client:
             while self.running:
                 try:
                     start_time = asyncio.get_running_loop().time()
-                    
                     is_server_ready = await self.check_server_health(client)
                     
                     if not is_server_ready:
-                        print(f"💤 Server not ready. Waiting... ({self.last_server_msg})")
                         await asyncio.sleep(30)
                         continue 
 
@@ -389,7 +365,7 @@ class BotEngine:
                         await asyncio.sleep(0.2) 
                     
                     elapsed = asyncio.get_running_loop().time() - start_time
-                    print(f"✅ Processed {len(symbols)} symbols in {elapsed:.2f} seconds. Sleeping...")
+                    # print(f"✅ Processed {len(symbols)} symbols in {elapsed:.2f} seconds.")
                                                                          
                     await asyncio.sleep(10)
 

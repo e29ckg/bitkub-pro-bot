@@ -44,7 +44,7 @@ A high-performance, asynchronous cryptocurrency trading bot for **Bitkub Exchang
 
 1. **Clone the repository:**
 ```bash
-git clone [https://github.com/yourusername/bitkub-pro-bot.git](https://github.com/yourusername/bitkub-pro-bot.git)
+git clone https://github.com/e29ckg/bitkub-pro-bot.git
 cd bitkub-pro-bot
 
 ```
@@ -70,7 +70,7 @@ Create a `.env` file in the root directory:
 ```env
 API_KEY=your_bitkub_api_key
 API_SECRET=your_bitkub_api_secret
-BASE_URL=[https://api.bitkub.com](https://api.bitkub.com)
+BASE_URL=https://api.bitkub.com
 
 TELEGRAM_TOKEN=1234556:abcdef
 CHAT_ID=xxxxxx
