@@ -148,6 +148,7 @@
                         <option value="1">Strategy 1: Trend & Reversal (ปลอดภัย)</option>
                         <option value="2">Strategy 2: RSI Scalping (เล่นสั้น/เข้าออกไว)</option>
                         <option value="3">Strategy 3: MACD Cross (ตามเทรนด์ยาว)</option>
+                        <option value="4" class="text-yellow-400 font-bold">Strategy 4: 🤖 Auto AI (วิเคราะห์ตลาดอัตโนมัติ)</option>
                     </select>
                 </div>
 
@@ -202,6 +203,7 @@
                             <option value="1">Strategy 1: Trend & Reversal (ปลอดภัย)</option>
                             <option value="2">Strategy 2: RSI Scalping (เล่นสั้น/เข้าออกไว)</option>
                             <option value="3">Strategy 3: MACD Cross (ตามเทรนด์ยาว)</option>
+                            <option value="4" class="text-yellow-400 font-bold">Strategy 4: 🤖 Auto AI (วิเคราะห์ตลาดอัตโนมัติ)</option>
                         </select>
                     </div>
                 </div>
@@ -275,9 +277,19 @@
                     const strategyNum = sym.strategy || 1; 
                     
                     // 🟢 2. [เพิ่มใหม่] ดึงป้ายสถานะตลาดของเหรียญนี้ ถ้ายังไม่มียังไม่ต้องโชว์
+                    // 🟢 2. ดึงป้ายสถานะตลาด และ กลยุทธ์ที่ Auto AI เลือกใช้ ณ ตอนนี้
+                    const regimeDataObj = regimeData[sym.symbol] || { regime: "⏳ Analyzing...", active_strat: strategyNum };
+                    
                     const regimeBadge = regimeData[sym.symbol] 
-                        ? `<span class="bg-slate-800 text-yellow-300 border border-slate-600 px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap">${regimeData[sym.symbol]}</span>` 
+                        ? `<span class="bg-slate-800 text-yellow-300 border border-slate-600 px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap">${regimeDataObj.regime}</span>` 
                         : `<span class="text-slate-600 text-[10px]">⏳ Analyzing...</span>`;
+                    
+                    // ถ้าเลือกโหมด 4 ให้แสดงว่าตอนนี้ AI เลือก Strat ไหนให้
+                    const displayStrat = strategyNum == 4 
+                        ? `<span class="text-yellow-400 font-bold">4 (Auto ➡️ S${regimeDataObj.active_strat})</span>` 
+                        : strategyNum;
+                    
+                    // ... (โค้ด PnL คงเดิม) ...
                     
                     let currentPrice = 0;
                     let pnlPct = 0;
@@ -308,6 +320,7 @@
                                 <div class="font-bold text-white mb-1">${sym.symbol}</div>
                                 <div>${regimeBadge}</div>
                                 <div class="text-slate-500 text-[10px] mt-1">Strategy: ${strategyNum}</div>
+                                <div class="text-slate-500 text-[10px] mt-1">Strategy: ${displayStrat}</div>
                             </td>
                             <td class="p-2 text-right">
                                 <div class="text-slate-300 text-xs">${parseFloat(sym.cost).toFixed(2)} ฿</div>
