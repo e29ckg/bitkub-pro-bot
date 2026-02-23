@@ -25,6 +25,8 @@ class BotEngine:
         
         # 🟢 [ใหม่] หน่วยความจำสำหรับเก็บ "ราคาสูงสุด" ของแต่ละเหรียญที่กำลังทำกำไร
         self.trailing_highs = {} 
+        # 🟢 [เพิ่มใหม่] ตัวแปรเก็บสภาวะตลาด (กระทิง/หมี/ไซด์เวย์) เพื่อส่งให้หน้าเว็บ
+        self.market_regimes = {}
     
     async def send_telegram(self, message):
         if not self.tg_token or not self.chat_id:
@@ -90,8 +92,21 @@ class BotEngine:
         df["MACD"], df["Signal"] = ind.calculate_macd(df["close"])
         df["BB_Mid"], df["BB_Upper"], df["BB_Lower"] = ind.calculate_bollinger_bands(df["close"])
         
+        # 🟢 [ใหม่] คำนวณ EMA และ ADX เพื่อวิเคราะห์สภาวะตลาด
+        df["EMA_20"] = ind.calculate_ema(df["close"], 20)
+        df["EMA_50"] = ind.calculate_ema(df["close"], 50)
+        df["ADX"] = ind.calculate_adx(df, 14)
+        
         last = df.iloc[-1]
         trend = "Downtrend" if last["MACD"] < last["Signal"] else "Uptrend"
+        
+        # 🟢 [ใหม่] แปะป้ายบอกสถานะตลาด (Market Regime)
+        if last["ADX"] < 25:
+            regime = "🦀 Sideways"
+        elif last["EMA_20"] > last["EMA_50"]:
+            regime = "🐂 Bullish"
+        else:
+            regime = "🐻 Bearish"
         
         decisions = []
         signal = "HOLD"
@@ -129,7 +144,8 @@ class BotEngine:
                 signal = "SELL"
                 decisions.append("MACD Death Cross")
                 
-        return signal, ", ".join(decisions), last["close"]
+        # 🟢 คืนค่า regime กลับไปด้วย
+        return signal, ", ".join(decisions), last["close"], regime
 
     async def execute_trade(self, client, symbol_data, action, price, reason):
         s_id = symbol_data['id']
@@ -249,7 +265,10 @@ class BotEngine:
         df = await self.api.get_candles(client, sym)
         if df is None: return
 
-        signal, reason, last_close = self.analyze_market(df, sym, strategy_type)
+        # signal, reason, last_close = self.analyze_market(df, sym, strategy_type)
+        signal, reason, last_close, regime = self.analyze_market(df, sym, strategy_type)
+        self.market_regimes[sym] = regime  # อัปเดตสภาวะตลาดในหน่วยความจำ
+
         previous_signal = self.last_status.get(sym, "HOLD")
         
         log_message = f"🔍 {sym} (S{strategy_type}): {last_close} | {signal}"

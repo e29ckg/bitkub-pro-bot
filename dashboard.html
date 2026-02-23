@@ -257,9 +257,14 @@
                 try {
                     const tickerRes = await fetch(`${API_URL}/api/ticker`);
                     tickerData = await tickerRes.json();
-                } catch (e) {
-                    console.log("Ticker fetch error, skipping PnL update temporarily.");
-                }
+                } catch (e) {}
+
+                // 🟢 1. [เพิ่มใหม่] ดึงข้อมูลสภาวะตลาด (Market Regime)
+                let regimeData = {};
+                try {
+                    const regimeRes = await fetch(`${API_URL}/api/market-regime`);
+                    regimeData = await regimeRes.json();
+                } catch (e) {}
 
                 const tbody = document.getElementById('symbolTableBody');
                 tbody.innerHTML = '';
@@ -269,10 +274,14 @@
                     const statusText = sym.status === 'true' ? 'ON' : 'OFF';
                     const strategyNum = sym.strategy || 1; 
                     
-                    // --- 🟢 เริ่มการคำนวณ PnL (เพิ่มการคำนวณกำไรเป็นบาท) ---
+                    // 🟢 2. [เพิ่มใหม่] ดึงป้ายสถานะตลาดของเหรียญนี้ ถ้ายังไม่มียังไม่ต้องโชว์
+                    const regimeBadge = regimeData[sym.symbol] 
+                        ? `<span class="bg-slate-800 text-yellow-300 border border-slate-600 px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap">${regimeData[sym.symbol]}</span>` 
+                        : `<span class="text-slate-600 text-[10px]">⏳ Analyzing...</span>`;
+                    
                     let currentPrice = 0;
                     let pnlPct = 0;
-                    let pnlTHB = 0; // ตัวแปรเก็บกำไร/ขาดทุนเป็นเงินบาท
+                    let pnlTHB = 0;
                     let pnlColor = "text-slate-500";
                     let pnlSign = "";
 
@@ -281,9 +290,9 @@
                     }
 
                     if (sym.coin > 0 && currentPrice > 0) {
-                        const currentValue = sym.coin * currentPrice; // มูลค่าปัจจุบัน (จำนวนเหรียญ * ราคาตอนนี้)
-                        pnlTHB = currentValue - sym.cost; // กำไรเป็นบาท = มูลค่าปัจจุบัน - ทุน
-                        pnlPct = (pnlTHB / sym.cost) * 100; // คิดเป็นเปอร์เซ็นต์
+                        const currentValue = sym.coin * currentPrice; 
+                        pnlTHB = currentValue - sym.cost; 
+                        pnlPct = (pnlTHB / sym.cost) * 100; 
 
                         if (pnlTHB > 0) {
                             pnlColor = "text-green-400";
@@ -292,13 +301,13 @@
                             pnlColor = "text-red-400";
                         }
                     }
-                    // ------------------------------------
 
                     const row = `
                         <tr class="hover:bg-slate-700 transition group border-b border-slate-700 last:border-0">
                             <td class="p-2">
-                                <div class="font-bold text-white">${sym.symbol}</div>
-                                <div class="text-slate-500 text-[10px]">Strategy: ${strategyNum}</div>
+                                <div class="font-bold text-white mb-1">${sym.symbol}</div>
+                                <div>${regimeBadge}</div>
+                                <div class="text-slate-500 text-[10px] mt-1">Strategy: ${strategyNum}</div>
                             </td>
                             <td class="p-2 text-right">
                                 <div class="text-slate-300 text-xs">${parseFloat(sym.cost).toFixed(2)} ฿</div>

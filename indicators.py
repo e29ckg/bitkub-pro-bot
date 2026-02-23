@@ -31,3 +31,34 @@ def calculate_stochastic(data, high, low, period=14):
     k = ((data - low_min) / (high_max - low_min)) * 100
     d = k.rolling(window=3).mean()
     return k, d
+
+def calculate_ema(series, period):
+    """คำนวณ Exponential Moving Average (EMA)"""
+    return series.ewm(span=period, adjust=False).mean()
+
+def calculate_adx(df, period=14):
+    """คำนวณ Average Directional Index (ADX) วัดความแรงของเทรนด์"""
+    high = df['high']
+    low = df['low']
+    close = df['close']
+
+    plus_dm = high.diff()
+    minus_dm = low.diff()
+    
+    plus_dm = np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0.0)
+    minus_dm = np.where((minus_dm > plus_dm) & (minus_dm > 0), minus_dm, 0.0)
+
+    tr1 = pd.DataFrame(high - low)
+    tr2 = pd.DataFrame(abs(high - close.shift(1)))
+    tr3 = pd.DataFrame(abs(low - close.shift(1)))
+    tr = pd.concat([tr1, tr2, tr3], axis=1, join='inner').max(axis=1)
+
+    atr = tr.ewm(alpha=1/period, adjust=False).mean()
+    
+    plus_di = 100 * (pd.Series(plus_dm).ewm(alpha=1/period, adjust=False).mean() / atr)
+    minus_di = 100 * (pd.Series(minus_dm).ewm(alpha=1/period, adjust=False).mean() / atr)
+    
+    dx = (abs(plus_di - minus_di) / abs(plus_di + minus_di)) * 100
+    adx = dx.ewm(alpha=1/period, adjust=False).mean()
+    
+    return adx.fillna(0)

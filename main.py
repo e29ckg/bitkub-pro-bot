@@ -227,6 +227,12 @@ async def get_ticker():
                 
     return result
 
+# 🟢 [เพิ่มใหม่] API สำหรับดึงข้อมูลสภาวะตลาด (กระทิง/หมี/ไซด์เวย์) แบบ Real-time
+@app.get("/api/market-regime", dependencies=[Depends(check_user)])
+async def get_market_regime():
+    # ดึงค่าที่ BotEngine คำนวณทิ้งไว้มาโชว์เลย ไม่ต้องคำนวณใหม่ให้เปลืองเครื่อง
+    return bot.market_regimes
+    
 # --- Test Endpoints (สำหรับ Dev/Test) ---
 @app.post("/test/buy", dependencies=[Depends(check_user)])
 async def test_buy(order: TestTradeModel):
