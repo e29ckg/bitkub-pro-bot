@@ -6,6 +6,11 @@ from config import DB_NAME
 def init_db():
     import sqlite3
     conn = sqlite3.connect(DB_NAME)
+    
+    # 🟢 [เพิ่มใหม่] เปิดโหมด WAL (Write-Ahead Logging) 
+    # ทำให้ Database สามารถ "อ่าน" และ "เขียน" พร้อมกันได้โดยไม่ล็อกค้าง
+    conn.execute('PRAGMA journal_mode=WAL;')
+    
     cursor = conn.cursor()
     # 🟢 เพิ่มคอลัมน์ strategy INTEGER DEFAULT 1
     cursor.execute("""
@@ -78,7 +83,7 @@ async def update_cost_coin(s_id, new_cost, new_coin):
 
 async def save_order(symbol, order_data, reason):
     # 1. ดึงข้อมูล result ออกมาจาก JSON (เพราะ response มี error, result)
-    if "result" in order_data:
+    if isinstance(order_data, dict) and "result" in order_data:
         data = order_data["result"]
     else:
         data = order_data
