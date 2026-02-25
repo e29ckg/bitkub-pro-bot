@@ -258,6 +258,22 @@ async def check_current_price(symbol: str):
             return {"symbol": symbol, "last_price": last_price}
         return {"error": "Could not fetch price"}
 
+# 🟢 [เพิ่มใหม่] API สำหรับดึงยอดเงินบาท (THB) จากกระเป๋า Bitkub
+@app.get("/api/wallet", dependencies=[Depends(check_user)])
+async def get_wallet_balance():
+    api = BitkubClient()
+    async with httpx.AsyncClient() as client:
+        try:
+            res = await api.get_wallet(client)
+            if res.get('error') == 0:
+                # ดึงเฉพาะยอด THB ออกมา
+                thb_balance = res.get('result', {}).get('THB', 0.0)
+                return {"status": "success", "THB": thb_balance}
+            return {"status": "error", "THB": 0.0}
+        except Exception as e:
+            print(f"Wallet Fetch Error: {e}")
+            return {"status": "error", "THB": 0.0}
+
 # =====================================================================
 # --- 📡 WebSocket & Startup ---
 # =====================================================================
