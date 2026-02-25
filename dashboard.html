@@ -592,9 +592,9 @@
             checkInitialStatus();
             fetchWalletBalance();            
             // 🟢 อัปเดตตารางราคาและ PnL ทุกๆ 5 วินาที
-            setInterval(fetchSymbols, 5000); 
-            
+            setInterval(fetchSymbols, 5000);             
             setInterval(loadHistory, 30000);
+            setInterval(fetchWalletBalance, 30000);
             setInterval(checkInitialStatus, 5000);
         };
     </script>
