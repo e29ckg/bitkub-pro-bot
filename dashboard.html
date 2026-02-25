@@ -44,7 +44,7 @@
                 </span>
             </div>
 
-            <button id="toggle-btn" onclick="toggleBot()" class="px-4 py-2 rounded-md font-bold text-white transition-all duration-200 bg-gray-500 cursor-wait" disabled>
+           <button id="toggle-btn" onclick="toggleBot()" class="px-3 py-1.5 text-sm rounded-md font-bold text-white transition-all duration-200 bg-gray-500 cursor-wait" disabled>
                 Loading...
             </button>
             
@@ -530,6 +530,14 @@
         }
 
         async function toggleBot() {
+            // 🟢 [เพิ่มใหม่] แจ้งเตือนยืนยันเฉพาะตอนที่จะ "หยุดบอท"
+            if (isBotRunning) {
+                const confirmStop = confirm("⚠️ แน่ใจหรือไม่ว่าต้องการ 'หยุดบอท'?\n\n(หากหยุด บอทจะไม่ทำการซื้อขายหรือเฝ้ากราฟจนกว่าจะกด Start ใหม่)");
+                if (!confirmStop) {
+                    return; // ถ้ากดยกเลิก ก็ให้ออกจากฟังก์ชันไปเลย ไม่ต้องทำอะไร
+                }
+            }
+
             const btn = document.getElementById('toggle-btn');
             
             btn.disabled = true;
