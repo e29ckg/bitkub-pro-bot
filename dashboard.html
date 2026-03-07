@@ -25,27 +25,30 @@
 </head>
 <body class="h-screen flex flex-col overflow-y-auto md:overflow-hidden">
 
-    <header class="bg-slate-900 border-b border-slate-700 p-3 md:p-4 flex flex-col md:flex-row justify-between items-center shadow-lg gap-3 sticky top-0 z-40 w-full">
+<header class="bg-slate-900 border-b border-slate-700 p-3 md:p-4 flex flex-col md:flex-row justify-between items-center shadow-lg gap-3 sticky top-0 z-40 w-full">
         <div class="flex items-center gap-3 w-full md:w-auto justify-center md:justify-start">
             <i class="fa-solid fa-robot text-green-400 text-2xl"></i>
             <h1 class="text-xl font-bold text-white tracking-wide">Bitkub <span class="text-green-400">Pro Bot</span></h1>
             <span id="connection-status" class="ml-2 text-xs text-slate-500"></span> 
         </div>
           
-        <div class="flex items-center gap-4 w-full md:w-auto justify-center md:justify-end">  
+        <div class="flex flex-wrap items-center gap-2 w-full md:w-auto justify-center md:justify-end">  
 
-            <div class="px-3 py-1 rounded-full text-xs font-bold bg-blue-900 text-blue-200 border border-blue-700 shadow-inner">
+            <div class="px-3 py-1 rounded-full text-xs font-bold bg-blue-900 text-blue-200 border border-blue-700 shadow-inner" title="เงินสดในกระเป๋า (THB Balance)">
                 <i class="fa-solid fa-wallet mr-1 text-blue-400"></i> <span id="wallet-thb">฿ 0.00</span>
             </div>
-            <div id="status-badge" class="px-3 py-1 rounded-full text-sm font-semibold bg-gray-600 text-gray-200">
-                <span class="flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full bg-gray-400" id="status-dot"></span>
-                    <span id="status-text">Checking...</span>
-                </span>
+
+            <div class="px-3 py-1 rounded-full text-xs font-bold bg-slate-800 text-slate-300 border border-slate-600 shadow-inner" title="ต้นทุนเหรียญที่ถืออยู่ (Total Cost)">
+                <i class="fa-solid fa-coins mr-1 text-slate-400"></i> <span id="total-cost">฿ 0.00</span>
             </div>
 
-           <button id="toggle-btn" onclick="toggleBot()" class="px-2 py-1 text-xs rounded-md font-bold text-white transition-all duration-200 bg-gray-500 cursor-wait" disabled>
-                Loading...
+            <div class="px-3 py-1 rounded-full text-xs font-bold bg-slate-800 border border-slate-600 shadow-inner" title="กำไร/ขาดทุนรวม (Total PnL)">
+                <i class="fa-solid fa-chart-line mr-1 text-slate-400"></i> <span id="total-pnl" class="text-slate-300">฿ 0.00</span>
+            </div>
+
+            <button id="toggle-btn" onclick="toggleBot()" class="flex items-center gap-2 px-3 py-1.5 text-xs rounded-full font-bold text-gray-200 transition-all duration-200 bg-gray-600 border border-gray-500 shadow-inner cursor-wait ml-2" disabled>
+                <span class="w-2 h-2 rounded-full bg-gray-400 animate-pulse" id="status-dot"></span>
+                <span id="status-text">Checking...</span>
             </button>
             
             <button onclick="logout()" class="text-gray-400 hover:text-white ml-2" title="Logout">
@@ -274,6 +277,9 @@
 
                 const tbody = document.getElementById('symbolTableBody');
                 tbody.innerHTML = '';
+                
+                let grandTotalCost = 0;
+                let grandTotalPnL = 0;
 
                 symbols.forEach(sym => {
                     const statusClass = sym.status === 'true' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300';
@@ -294,7 +300,6 @@
                         : strategyNum;
                     
                     // ... (โค้ด PnL คงเดิม) ...
-                    
                     let currentPrice = 0;
                     let pnlPct = 0;
                     let pnlTHB = 0;
@@ -309,6 +314,9 @@
                         const currentValue = sym.coin * currentPrice; 
                         pnlTHB = currentValue - sym.cost; 
                         pnlPct = (pnlTHB / sym.cost) * 100; 
+
+                        grandTotalCost += parseFloat(sym.cost);
+                        grandTotalPnL += pnlTHB;
 
                         if (pnlTHB > 0) {
                             pnlColor = "text-green-400";
@@ -354,7 +362,22 @@
                         </tr>
                     `;
                     tbody.innerHTML += row;
+                    document.getElementById('total-cost').innerText = `฿ ${grandTotalCost.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                
                 });
+                const pnlElement = document.getElementById('total-pnl');
+                let formattedPnL = Math.abs(grandTotalPnL).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                
+                if (grandTotalPnL > 0) {
+                    pnlElement.innerText = `+฿ ${formattedPnL}`;
+                    pnlElement.className = "text-green-400 font-bold";
+                } else if (grandTotalPnL < 0) {
+                    pnlElement.innerText = `-฿ ${formattedPnL}`;
+                    pnlElement.className = "text-red-400 font-bold";
+                } else {
+                    pnlElement.innerText = `฿ 0.00`;
+                    pnlElement.className = "text-slate-300 font-bold";
+                }
             } catch (e) { console.error("Fetch symbols error:", e); }
         }
 
@@ -498,34 +521,26 @@
             } catch (error) { console.error("Error loading history:", error); }
         }
 
-        function updateUI(running) {
-            isBotRunning = running;
+        // 🟢 [อัปเดตใหม่] ฟังก์ชันเปลี่ยนสีปุ่มรวมร่าง
+        function updateUI(isRunning) {
+            isBotRunning = isRunning;
             const btn = document.getElementById('toggle-btn');
-            const badge = document.getElementById('status-badge');
-            const statusText = document.getElementById('status-text');
-            const statusDot = document.getElementById('status-dot');
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
 
+            // ปลดล็อคปุ่มให้กดได้
             btn.disabled = false;
-            btn.classList.remove('cursor-wait', 'bg-gray-500');
             
-            if (running) {
-                btn.innerText = "⏹ Stop Bot";
-                btn.classList.add('bg-red-600', 'hover:bg-red-700'); 
-                btn.classList.remove('bg-green-600', 'hover:bg-green-700');
-                
-                statusText.innerText = "Running";
-                statusDot.classList.replace('bg-gray-400', 'bg-green-400');
-                badge.classList.replace('bg-gray-600', 'bg-green-900');
-                badge.classList.replace('text-gray-200', 'text-green-100');
+            if (isRunning) {
+                // โหมด: บอทกำลังทำงาน (สีเขียว) -> กดเพื่อหยุด
+                btn.className = "flex items-center gap-2 px-3 py-1.5 text-xs rounded-full font-bold text-green-100 transition-all duration-200 bg-green-800 hover:bg-green-700 border border-green-600 shadow-inner cursor-pointer ml-2";
+                dot.className = "w-2 h-2 rounded-full bg-green-400 animate-pulse shadow-[0_0_5px_#4ade80]";
+                text.innerHTML = '<i class="fa-solid fa-stop mr-1"></i> Running (Click to Stop)';
             } else {
-                btn.innerText = "▶ Start Bot";
-                btn.classList.add('bg-green-600', 'hover:bg-green-700'); 
-                btn.classList.remove('bg-red-600', 'hover:bg-red-700');
-
-                statusText.innerText = "Stopped";
-                statusDot.classList.replace('bg-green-400', 'bg-gray-400'); 
-                badge.classList.replace('bg-green-900', 'bg-gray-600');
-                badge.classList.replace('text-green-100', 'text-gray-200');
+                // โหมด: บอทหยุดทำงาน (สีแดง) -> กดเพื่อเริ่ม
+                btn.className = "flex items-center gap-2 px-3 py-1.5 text-xs rounded-full font-bold text-red-100 transition-all duration-200 bg-red-900 hover:bg-red-800 border border-red-700 shadow-inner cursor-pointer ml-2";
+                dot.className = "w-2 h-2 rounded-full bg-red-500";
+                text.innerHTML = '<i class="fa-solid fa-play mr-1"></i> Stopped (Click to Start)';
             }
         }
 
@@ -541,8 +556,9 @@
             const btn = document.getElementById('toggle-btn');
             
             btn.disabled = true;
-            btn.innerText = "Processing...";
-            
+            document.getElementById('status-text').innerText = "Processing...";
+            document.getElementById('status-dot').className = "w-2 h-2 rounded-full bg-yellow-400 animate-pulse";
+            btn.className = "flex items-center gap-2 px-3 py-1.5 text-xs rounded-full font-bold text-yellow-100 transition-all duration-200 bg-yellow-700 border border-yellow-600 shadow-inner cursor-wait ml-2";
             try {
                 let url = isBotRunning ? '/stop-bot' : '/start-bot';
                 
